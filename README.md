@@ -1,18 +1,15 @@
-![GitHub top language](https://img.shields.io/github/languages/top/effectsmachine/ugv_base_general) ![GitHub language count](https://img.shields.io/github/languages/count/effectsmachine/ugv_base_general)
-![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/effectsmachine/ugv_base_general)
-![GitHub repo size](https://img.shields.io/github/repo-size/effectsmachine/ugv_base_general) ![GitHub](https://img.shields.io/github/license/effectsmachine/ugv_base_general) ![GitHub last commit](https://img.shields.io/github/last-commit/effectsmachine/ugv_base_general)
-
-# Waveshare UGV Robots
-This is a lower computer example for the [Waveshare](https://www.waveshare.com/) UGV robots with General Driver: **WAVR ROVER**, **UGV01**, **UGV02**\*.
-
-\*The old version of UGV02 is driven by General Driver.
-
-![](./README_footage/UGV-Rover-details-23.jpg)
+# GENERAL INFORMATION - WHAT IS THE WAVE ROVER?
+See the Waveshare wiki for the description of the Wave Rover - https://www.waveshare.com/wiki/WAVE_ROVER
 
 ## Basic Description
-The Waveshare UGV robots utilize both an upper computer and a lower computer. This repository contains the program running on the lower computer, which is typically a ESP32 on **General Driver for Robots**.  
+The Waveshare UGV robots utilize both an upper computer and a lower computer. This repository contains the program running on the lower computer, which is typically a ESP32 with **General Driver for Robots**.  
 
-The program running on the lower computer is either named [ugv_base_ros](https://github.com/effectsmachine/ugv_base_ros.git) or [ugv_base_general](https://github.com/effectsmachine/ugv_base_general.git) depending on the type of robot driver being used.  
+### LOWER COMPUTER
+The program running on the lower computer is either named [ugv_base_ros](https://github.com/effectsmachine/ugv_base_ros.git) or [ugv_base_general](https://github.com/effectsmachine/ugv_base_general.git) depending on the type of robot driver being used. In the case of WAVE ROVER we are basing the implementation on the ugv_base_general firmware.
+
+**This repo contains the implementation for the ESP-32 lower computer of the WAVE ROVER**. The code is initially based on the original Waveshare repo and then modified by me to fit my needs. See https://github.com/waveshareteam/ugv_base_general/ for the original Waveshare code.
+
+### UPPER COMPUTER
 
 The upper computer communicates with the lower computer (the robot's driver based on ESP32) by sending JSON commands via GPIO UART. The host controller, which employs a [Jetson Orin](https://github.com/waveshareteam/ugv_jetson) or a [Raspberry Pi](https://github.com/waveshareteam/ugv_rpi) based on the type of upper computer being used, handles AI vision and strategy planning, while the sub-controller, utilizing an ESP32, manages motion control and sensor data processing. This setup ensures efficient collaboration and enhanced performance.
 
@@ -27,24 +24,30 @@ The upper computer communicates with the lower computer (the robot's driver base
 - Supports RoArm-M2
 - Control and Communicate via ESP-NOW
 
-## Configure the compilation environment
-You need to install **[Arduino IDE](https://www.arduino.cc/en/software)** and **[ESP32 Board](https://randomnerdtutorials.com/installing-the-esp32-board-in-arduino-ide-windows-instructions/)** first.
+## Configure and build the firmware
 
-### Install libraries
-Copy `SCServo` folder into `C:\Users\[username]\AppData\Local\Arduino15\libraries\`
+### Arudino setup
+1. You need to install **[Arduino IDE](https://www.arduino.cc/en/software)** and **[ESP32 Board](https://randomnerdtutorials.com/installing-the-esp32-board-in-arduino-ide-windows-instructions/)** first.
 
-Install libraries with **`Library Manager`**: ArduinoJson, LittleFS, Adafruit_SSD1306, INA219_WE, ESP32Encoder, PID_v2, SimpleKalmanFilter, Adafruit_ICM20X, Adafruit_ICM20948, Adafruit_Sensor
+2. Then, copy `SCServo` folder into `C:\Users\[username]\AppData\Local\Arduino15\libraries\`
+
+3. Install the following libraries using the Arduino IDE **Library Manager**:
+
+- ArduinoJson
+- LittleFS
+- Adafruit_SSD1306
+- INA219_WE
+- ESP32Encoder
+- PID_v2
+- SimpleKalmanFilter
+- Adafruit_ICM20X
+- Adafruit_ICM20948
+- Adafruit_Sensor
 
 ### Basic Use
-You can send JSON command to robot via UART/USB@115200 or Http Request/Web App.
+See the Wiki: https://www.waveshare.com/wiki/WAVE_ROVER
 
-To ensure compatibility with various types of robots. You can configure the robot by entering the following command:
-
-    {"T":900,"main":2,"module":2}
-
-In this command, the s directive denotes a robot-type setting. The first digit, `2`, signifies that the main type of robot is a `UGV Rover`, with `1` representing `RaspRover` and `3` indicating `UGV Beast`. The second digit, `2`, specifies the module as `Camera PT`, where `0` denotes `Nothing` and `1` signifies `RoArm-M2`.
-
-# License
+## License
 ugv_base_general for the Waveshare UGV Robots: an open source robotics platform for the Robots based on **General Driver**.
 Copyright (C) 2024 [Waveshare](https://www.waveshare.com/)
 
