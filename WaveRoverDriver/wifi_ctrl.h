@@ -20,7 +20,7 @@ byte WIFI_MODE_ON_BOOT = 1;
 const char* sta_ssid = "none";
 const char* sta_password = "none";
 const char* ap_ssid = "UGV";
-const char* ap_password = "12345678";
+const char* ap_password = "password123";
 
 // true: change the WIFI_MODE_ON_BOOT to 3 when first STA mode succeed.
 bool defaultModeToAPSTA = true;
@@ -126,7 +126,7 @@ IPAddress getIPAddress(byte inputMode) {
 // create a wifiConfig.json file
 // from the args already be using.
 bool createWifiConfigFileByStatus() {
-	if (WIFI_MODE_ON_BOOT != 0 || WIFI_MODE_ON_BOOT != -1){
+	if (WIFI_MODE_ON_BOOT != 0 && WIFI_MODE_ON_BOOT != -1){
 		wifiDoc.clear();
 		wifiDoc["wifi_mode_on_boot"] = WIFI_MODE_ON_BOOT;
 		wifiDoc["sta_ssid"] = sta_ssid;
@@ -156,7 +156,7 @@ bool createWifiConfigFileByStatus() {
 		}
 	} else {
 		jsonInfoHttp.clear();
-  	jsonInfoHttp["info"] = "not for this wifi_mode_on_boot.";
+  	    jsonInfoHttp["info"] = "not for this wifi_mode_on_boot.";
 		return false;
 	}
 }
@@ -185,9 +185,9 @@ bool wifiModeAP(const char* input_ssid, const char* input_password) {
 	updateOledWifiInfo();
 
 	jsonInfoHttp.clear();
-  jsonInfoHttp["info"] = "AP mode starts";
-  jsonInfoHttp["ap_ssid"] = ap_ssid;
-  jsonInfoHttp["ap_password"] = ap_password;
+    jsonInfoHttp["info"] = "AP mode starts";
+    jsonInfoHttp["ap_ssid"] = ap_ssid;
+    jsonInfoHttp["ap_password"] = ap_password;
 
 	return true;
 }
