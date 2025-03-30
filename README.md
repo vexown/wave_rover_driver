@@ -1,8 +1,17 @@
-# GENERAL INFORMATION - WHAT IS THE WAVE ROVER?
+# WAVE ROVER driver
+
+This project, WAVE ROVER driver, is based on the [ugv_base_general](https://github.com/waveshareteam/ugv_base_general) repository by waveshareteam.
+
+This project is licensed under the GNU General Public License v3.0, as is the original `ugv_base_general` project. See license information at the end of this readme.
+
+# WHAT IS THE WAVE ROVER?
 See the Waveshare wiki for the description of the Wave Rover - https://www.waveshare.com/wiki/WAVE_ROVER
 
 ## Basic Description
-The Waveshare UGV robots utilize both an upper computer and a lower computer. This repository contains the program running on the lower computer, which is typically a ESP32 with **General Driver for Robots**.  
+The Waveshare UGV robots utilize both an upper computer and a lower computer. This repository contains the program running on the lower computer, which is typically a ESP32 with **General Driver for Robots**
+
+## Driver Board
+Wave Rover utilizes the Waveshare **General Driver for Robots** - you can buy it here (in case you burn it and need a replacement) - https://www.waveshare.com/general-driver-for-robots.htm and you can find plenty of info and tutorials on the wiki page: https://www.waveshare.com/wiki/General_Driver_for_Robots 
 
 ### LOWER COMPUTER
 The program running on the lower computer is either named [ugv_base_ros](https://github.com/effectsmachine/ugv_base_ros.git) or [ugv_base_general](https://github.com/effectsmachine/ugv_base_general.git) depending on the type of robot driver being used. In the case of WAVE ROVER we are basing the implementation on the ugv_base_general firmware.
@@ -27,22 +36,39 @@ The upper computer communicates with the lower computer (the robot's driver base
 ## Configure and build the firmware
 
 ### Arudino setup
-1. You need to install **[Arduino IDE](https://www.arduino.cc/en/software)** and **[ESP32 Board](https://randomnerdtutorials.com/installing-the-esp32-board-in-arduino-ide-windows-instructions/)** first.
 
-2. Then, copy `SCServo` folder into `C:\Users\[username]\AppData\Local\Arduino15\libraries\`
+Guide based on https://www.waveshare.com/wiki/How_To_Install_Arduino_IDE
 
-3. Install the following libraries using the Arduino IDE **Library Manager**:
+1. Install **[Arduino IDE](https://www.arduino.cc/en/software)** 
 
+2. In Arduino IDE go to File->Preferences and add the following link in the "Additional boards manager URLs": https://dl.espressif.com/dl/package_esp32_index.json
+
+3. Download ESP32 development package from Waveshare: https://files.waveshare.com/wiki/RoArm-M2-S/esp32-2.0.11.zip and unzip it in:
+   Windows: `C:\Users\[username]\AppData\Local\Arduino15\packages\`
+   Linux: `~\.arudino15\packages\`
+
+(you should end up with a new `esp32` folder in the `packages` directory)
+
+4. Download required libraries from Waveshare: https://files.waveshare.com/upload/a/ae/General-Libraries.zip and unzip all of them to the `libraries` folder in your Sketchbook location (check File->Preferences in Arduino IDE to find it).
+
+**Note, there is a few missing libraries/dependencies in this package which you need to install/update via the Arduino Library Manager**
+Here is the list:
 - ArduinoJson
-- LittleFS
 - Adafruit_SSD1306
-- INA219_WE
 - ESP32Encoder
-- PID_v2
-- SimpleKalmanFilter
-- Adafruit_ICM20X
-- Adafruit_ICM20948
-- Adafruit_Sensor
+
+(you should end up with bunch of new library folders in the `libraries` directory)
+
+4. Open the **WaveRoverDriver.ino** file in Arduino to load the project into the workspace
+
+5. Select the ESP32 Dev Module as the Board: Tools->Board->Search for esp32 in the Board Manager and Install it->Go back to Tools->Board and Select the **ESP32 Dev Module** under the esp32 family
+
+6. Connect the driver board to the PC via the USB-C port that is in the middle of the board (there is 2).
+
+7. Select the newly appeared COM port in Arduino: Tools->Port
+
+8. Verify & Upload (Flash) the new firmware
+
 
 ### Basic Use
 See the Wiki: https://www.waveshare.com/wiki/WAVE_ROVER
