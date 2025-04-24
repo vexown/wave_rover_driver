@@ -1,0 +1,8 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "idf.espIdfPath": "/home/blankmcu/Repos/Moduri/UnitApplication/Dependencies/esp-idf",
+    "idf.toolsPath": "/home/blankmcu/.espressif",
+    "idf.pythonInstallPath": "/usr/bin/python3",
+    "idf.flashType": "UART",
+    "idf.port": "/dev/ttyUSB0"
+}
