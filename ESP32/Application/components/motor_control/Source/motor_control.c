@@ -263,3 +263,35 @@ esp_err_t motor_stop(void)
     
     return ESP_OK;
 }
+
+esp_err_t motor_move_forward(int pwm)
+{
+    ESP_LOGI(TAG, "Moving forward with PWM: %d", pwm);
+    // Both motors forward with the same positive PWM value
+    return motor_set_speed(pwm, pwm);
+}
+
+esp_err_t motor_move_backward(int pwm)
+{
+    ESP_LOGI(TAG, "Moving backward with PWM: %d", pwm);
+    // Both motors backward with the same negative PWM value
+    // Ensure pwm is positive before negating, although motor_set_speed clamps it.
+    int speed = (pwm < 0) ? pwm : -pwm;
+    return motor_set_speed(speed, speed);
+}
+
+esp_err_t motor_turn_left(int pwm)
+{
+    ESP_LOGI(TAG, "Turning left with PWM: %d", pwm);
+    // Left motor backward, right motor forward for turning left on the spot
+    int speed = (pwm < 0) ? -pwm : pwm; // Ensure positive pwm for magnitude
+    return motor_set_speed(-speed, speed);
+}
+
+esp_err_t motor_turn_right(int pwm)
+{
+    ESP_LOGI(TAG, "Turning right with PWM: %d", pwm);
+    // Left motor forward, right motor backward for turning right on the spot
+    int speed = (pwm < 0) ? -pwm : pwm; // Ensure positive pwm for magnitude
+    return motor_set_speed(speed, -speed);
+}

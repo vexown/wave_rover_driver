@@ -26,5 +26,37 @@ esp_err_t motor_set_speed(int left_pwm, int right_pwm);
  */
 esp_err_t motor_stop(void);
 
+/**
+ * @brief Move the rover forward.
+ *
+ * @param pwm PWM duty cycle (0 to 255).
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+esp_err_t motor_move_forward(int pwm);
+
+/**
+ * @brief Move the rover backward.
+ *
+ * @param pwm PWM duty cycle (0 to 255).
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+esp_err_t motor_move_backward(int pwm);
+
+/**
+ * @brief Turn the rover left (on the spot).
+ *
+ * @param pwm PWM duty cycle (0 to 255).
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+esp_err_t motor_turn_left(int pwm);
+
+/**
+ * @brief Turn the rover right (on the spot).
+ *
+ * @param pwm PWM duty cycle (0 to 255).
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+esp_err_t motor_turn_right(int pwm);
+
 
 #endif // MOTOR_CONTROL_H
