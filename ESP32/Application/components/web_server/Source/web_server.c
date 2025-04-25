@@ -11,6 +11,9 @@
 #include <string.h>
 #include <stdlib.h> // For atoi
 
+// Declare the OTA update function from app_main.c
+extern void perform_ota_update();
+
 // WiFi AP Configuration - based on wifi_ctrl.h defaults
 #define WIFI_AP_SSID      "WAVE_ROVER_ESP32"
 #define WIFI_AP_PASSWORD  "password123" // Must be at least 8 characters
@@ -24,49 +27,68 @@ static const char *TAG = "WEB_SERVER";
 static httpd_handle_t server = NULL;
 static esp_netif_t *ap_netif = NULL; // Store netif pointer
 
-// Basic HTML Page with Motor Control Buttons
-// Uses simple GET requests with query parameters
+// Basic HTML Page with Motor Control Buttons and OTA Button
 const char *HTML_PAGE = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-<title>Wave Rover Control</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-body { font-family: Arial, sans-serif; text-align: center; }
-.btn { display: inline-block; padding: 15px 25px; font-size: 24px; cursor: pointer;
-       text-align: center; text-decoration: none; outline: none; color: #fff;
-       background-color: #4CAF50; border: none; border-radius: 15px; box-shadow: 0 9px #999; margin: 10px; }
-.btn:active { background-color: #3e8e41; box-shadow: 0 5px #666; transform: translateY(4px); }
-.stop { background-color: #f44336; }
-.grid-container { display: grid; grid-template-columns: auto auto auto; padding: 10px; justify-content: center; }
-.grid-item { padding: 20px; font-size: 30px; text-align: center; }
-</style>
-<script>
-function sendCmd(dir) {
-  fetch('/control?dir=' + dir)
-    .then(response => response.text())
-    .then(data => console.log(data))
-    .catch(error => console.error('Error:', error));
-}
-</script>
-</head>
-<body>
-<h1>Wave Rover Control</h1>
-<div class="grid-container">
-  <div class="grid-item"></div>
-  <div class="grid-item"><button class="btn" onclick="sendCmd('forward')">Forward</button></div>
-  <div class="grid-item"></div>
-  <div class="grid-item"><button class="btn" onclick="sendCmd('left')">Left</button></div>
-  <div class="grid-item"><button class="btn stop" onclick="sendCmd('stop')">Stop</button></div>
-  <div class="grid-item"><button class="btn" onclick="sendCmd('right')">Right</button></div>
-  <div class="grid-item"></div>
-  <div class="grid-item"><button class="btn" onclick="sendCmd('backward')">Backward</button></div>
-  <div class="grid-item"></div>
-</div>
-</body>
-</html>
-)rawliteral";
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <title>Wave Rover Control</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+    body { font-family: Arial, sans-serif; text-align: center; }
+    .btn { display: inline-block; padding: 15px 25px; font-size: 24px; cursor: pointer;
+           text-align: center; text-decoration: none; outline: none; color: #fff;
+           background-color: #4CAF50; border: none; border-radius: 15px; box-shadow: 0 9px #999; margin: 10px; }
+    .btn:active { background-color: #3e8e41; box-shadow: 0 5px #666; transform: translateY(4px); }
+    .stop { background-color: #f44336; }
+    .ota { background-color: #ff9800; } /* Style for OTA button */
+    .grid-container { display: grid; grid-template-columns: auto auto auto; padding: 10px; justify-content: center; }
+    .grid-item { padding: 20px; font-size: 30px; text-align: center; }
+    </style>
+    <script>
+    function sendCmd(dir) {
+      fetch('/control?dir=' + dir)
+        .then(response => response.text())
+        .then(data => console.log(data))
+        .catch(error => console.error('Error:', error));
+    }
+    function startOta() {
+      // Optionally display a confirmation message
+      if (confirm('Start Firmware Update? The device will reboot.')) {
+        fetch('/ota')
+          .then(response => response.text())
+          .then(data => {
+             console.log(data);
+             alert('OTA process started. Check device logs.'); // Inform user
+          })
+          .catch(error => {
+             console.error('Error:', error);
+             alert('Failed to start OTA.'); // Inform user of failure
+          });
+      }
+    }
+    </script>
+    </head>
+    <body>
+    <h1>Wave Rover Control</h1>
+    <div class="grid-container">
+      <div class="grid-item"></div>
+      <div class="grid-item"><button class="btn" onclick="sendCmd('forward')">Forward</button></div>
+      <div class="grid-item"></div>
+      <div class="grid-item"><button class="btn" onclick="sendCmd('left')">Left</button></div>
+      <div class="grid-item"><button class="btn stop" onclick="sendCmd('stop')">Stop</button></div>
+      <div class="grid-item"><button class="btn" onclick="sendCmd('right')">Right</button></div>
+      <div class="grid-item"></div>
+      <div class="grid-item"><button class="btn" onclick="sendCmd('backward')">Backward</button></div>
+      <div class="grid-item"></div>
+    </div>
+    <hr>
+    <div>
+      <button class="btn ota" onclick="startOta()">Update Firmware</button>
+    </div>
+    </body>
+    </html>
+    )rawliteral";
 
 // Event handler for WiFi events
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
@@ -195,6 +217,22 @@ static esp_err_t control_get_handler(httpd_req_t *req)
     return ESP_OK; // Return OK regardless of motor control result for HTTP handling
 }
 
+// HTTP GET handler for "/ota" URL
+static esp_err_t ota_get_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Received OTA update request");
+
+    // Send response to client first, as perform_ota_update might block/reboot
+    httpd_resp_send(req, "OTA update process initiated...", HTTPD_RESP_USE_STRLEN);
+
+    // Call the OTA update function (defined in app_main.c)
+    // This function will handle the update and reboot if successful
+    perform_ota_update();
+
+    // Note: Code here might not be reached if OTA causes a reboot immediately
+    return ESP_OK;
+}
+
 // URI definitions
 static const httpd_uri_t uri_root = {
     .uri       = "/",
@@ -207,6 +245,13 @@ static const httpd_uri_t uri_control = {
     .uri       = "/control",
     .method    = HTTP_GET,
     .handler   = control_get_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t uri_ota = {
+    .uri       = "/ota",
+    .method    = HTTP_GET,
+    .handler   = ota_get_handler,
     .user_ctx  = NULL
 };
 
@@ -224,6 +269,7 @@ static esp_err_t start_webserver(void)
         ESP_LOGI(TAG, "Registering URI handlers");
         httpd_register_uri_handler(server, &uri_root);
         httpd_register_uri_handler(server, &uri_control);
+        httpd_register_uri_handler(server, &uri_ota); 
         return ESP_OK;
     }
 
