@@ -84,11 +84,21 @@ esp_err_t oled_err = ESP_FAIL;
 /*                        GLOBAL FUNCTION DEFINITIONS                          */
 /*******************************************************************************/
 
-void perform_ota_update() 
+void perform_ota_update()
 {
     ESP_LOGI(OTA_TAG, "Starting OTA update from URL: %s", FIRMWARE_UPGRADE_URL);
 
-    esp_http_client_config_t http_config = 
+    // Display "OTA Update..." on OLED if available
+    if (oled_err == ESP_OK) {
+        oled_clear_buffer();
+        oled_write_string(0, "WAVE ROVER");
+        oled_write_string(1, "OTA Update...");
+        oled_write_string(2, "Downloading...");
+        oled_write_string(3, ""); // Clear line 3
+        oled_refresh();
+    }
+
+    esp_http_client_config_t http_config =
     {
         .url = FIRMWARE_UPGRADE_URL,
         .cert_pem = (char *)server_cert_pem_start,
@@ -96,24 +106,36 @@ void perform_ota_update()
         .keep_alive_enable = true,
     };
 
-    esp_https_ota_config_t ota_config = 
+    esp_https_ota_config_t ota_config =
     {
         .http_config = &http_config,
     };
 
     esp_err_t ret = esp_https_ota(&ota_config);
-    if (ret == ESP_OK) 
+    if (ret == ESP_OK)
     {
         ESP_LOGI(OTA_TAG, "OTA Update Successful, Rebooting...");
+        // Display "OTA Success!" briefly before reboot (might not be visible)
+        if (oled_err == ESP_OK) {
+            oled_write_string(2, "OTA Success!");
+            oled_write_string(3, "Rebooting...");
+            oled_refresh();
+            vTaskDelay(pdMS_TO_TICKS(500)); // Short delay to show message
+        }
         esp_restart();
-    } 
-    else 
+    }
+    else
     {
         ESP_LOGE(OTA_TAG, "OTA Update Failed: %s", esp_err_to_name(ret));
         // Handle failure (e.g., update OLED, log error)
-        if (oled_err == ESP_OK) 
+        if (oled_err == ESP_OK)
         { // Check if OLED is available
-             oled_write_string(3, "OTA Failed!");
+             oled_write_string(2, "OTA Failed!");
+             // Display error code on line 3 if possible
+             char err_buf[20];
+             snprintf(err_buf, sizeof(err_buf), "Err: %s", esp_err_to_name(ret));
+             err_buf[sizeof(err_buf)-1] = '\0'; // Ensure null termination
+             oled_write_string(3, err_buf);
              oled_refresh();
         }
     }
@@ -193,7 +215,7 @@ void app_main(void)
         // Display Welcome Message on OLED
         oled_clear_buffer();
         oled_write_string(0, "WAVE ROVER"); // Line 0
-        oled_write_string(1, "ESP-IDF vX.Y"); // Line 1 (Replace X.Y with actual version if desired)
+        oled_write_string(1, "ESP-IDF v1.2"); // Line 1 
         oled_write_string(2, "Initializing..."); // Line 2
         oled_err = oled_refresh();
         if (oled_err != ESP_OK) {
@@ -202,27 +224,15 @@ void app_main(void)
     }
 
     LOG("Initializing Web Server...");
-    esp_err_t web_err = web_server_init(); // Initialize WiFi AP and HTTP Server
+    esp_err_t web_err = web_server_init(); // Initialize WiFi STA and HTTP Server
     if (web_err != ESP_OK) {
         LOG("Web Server initialization failed: %s", esp_err_to_name(web_err));
         // Decide how to handle failure, maybe halt or restart
         // For now, continue execution but log the error
-    } else {
+    } 
+    else 
+    {
         LOG("Web Server Initialized.");
-        // Update OLED with AP SSID and IP address
-        if (oled_err == ESP_OK) { // Check if OLED init was successful
-            // Use the WIFI_AP_SSID defined in web_server.c
-            // Note: Max 16 chars fit well on 128x32 with 8x8 font
-            char line2_buf[24]; // Increased size from 20 to 24
-            // Use the actual string instead of the macro here
-            snprintf(line2_buf, sizeof(line2_buf), "AP: %s", "WAVE_ROVER_ESP32"); 
-            // Truncate if too long for display (optional, depends on desired look)
-            // line2_buf[16] = '\0'; // Example truncation if needed
-
-            oled_write_string(2, line2_buf); // Update line 2 with SSID
-            oled_write_string(3, "IP: 192.168.4.1"); // Default AP IP on line 3
-            oled_refresh();
-       }
     }
 
     LOG("Entering idle loop. Connect to WiFi AP and control via web server.");
