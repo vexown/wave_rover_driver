@@ -26,3 +26,7 @@ idf_component_register(SRCS "app_main.c"
                                 oled_display
                                 web_server      
                       )
+
+target_add_binary_data(${COMPONENT_TARGET} "certs/apache-selfsigned.crt" TEXT EMBED_IN_RODATA)
+
+
