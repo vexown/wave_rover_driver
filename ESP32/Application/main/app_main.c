@@ -35,8 +35,6 @@
 #include "esp_flash.h"
 #include "esp_system.h"
 #include "esp_log.h" 
-#include "esp_http_client.h"
-#include "esp_https_ota.h" 
 #include "Common.h"
 #include "motor_control.h"
 #include "oled_display.h"
@@ -49,8 +47,6 @@
 #define MOTOR_TEST_DELAY_MS 2000 // Delay in milliseconds for each movement
 #define MOTOR_STOP_DELAY_MS 1000 // Delay in milliseconds for stops
 
-#define FIRMWARE_UPGRADE_URL "https://192.168.1.194/firmware_wave_rover_driver.bin"
-
 /*******************************************************************************/
 /*                               DATA TYPES                                    */
 /*******************************************************************************/
@@ -58,9 +54,6 @@
 /*******************************************************************************/
 /*                        GLOBAL FUNCTION DECLARATIONS                         */
 /*******************************************************************************/
-/* External symbol declarations for the OTA server certificate */
-extern const uint8_t server_cert_pem_start[] asm("_binary_apache_selfsigned_crt_start");
-extern const uint8_t server_cert_pem_end[]   asm("_binary_apache_selfsigned_crt_end");
 
 /*******************************************************************************/
 /*                        STATIC FUNCTION DECLARATIONS                         */
@@ -69,7 +62,6 @@ extern const uint8_t server_cert_pem_end[]   asm("_binary_apache_selfsigned_crt_
 /*******************************************************************************/
 /*                            STATIC VARIABLES                                 */
 /*******************************************************************************/
-static const char *OTA_TAG = "OTA_UPDATE";
 
 /*******************************************************************************/
 /*                            GLOBAL VARIABLES                                 */
@@ -83,63 +75,6 @@ esp_err_t oled_err = ESP_FAIL;
 /*******************************************************************************/
 /*                        GLOBAL FUNCTION DEFINITIONS                          */
 /*******************************************************************************/
-
-void perform_ota_update()
-{
-    ESP_LOGI(OTA_TAG, "Starting OTA update from URL: %s", FIRMWARE_UPGRADE_URL);
-
-    // Display "OTA Update..." on OLED if available
-    if (oled_err == ESP_OK) {
-        oled_clear_buffer();
-        oled_write_string(0, "WAVE ROVER");
-        oled_write_string(1, "OTA Update...");
-        oled_write_string(2, "Downloading...");
-        oled_write_string(3, ""); // Clear line 3
-        oled_refresh();
-    }
-
-    esp_http_client_config_t http_config =
-    {
-        .url = FIRMWARE_UPGRADE_URL,
-        .cert_pem = (char *)server_cert_pem_start,
-        .timeout_ms = 10000, // Set a specific timeout in milliseconds (e.g., 10 seconds)
-        .keep_alive_enable = true,
-    };
-
-    esp_https_ota_config_t ota_config =
-    {
-        .http_config = &http_config,
-    };
-
-    esp_err_t ret = esp_https_ota(&ota_config);
-    if (ret == ESP_OK)
-    {
-        ESP_LOGI(OTA_TAG, "OTA Update Successful, Rebooting...");
-        // Display "OTA Success!" briefly before reboot (might not be visible)
-        if (oled_err == ESP_OK) {
-            oled_write_string(2, "OTA Success!");
-            oled_write_string(3, "Rebooting...");
-            oled_refresh();
-            vTaskDelay(pdMS_TO_TICKS(500)); // Short delay to show message
-        }
-        esp_restart();
-    }
-    else
-    {
-        ESP_LOGE(OTA_TAG, "OTA Update Failed: %s", esp_err_to_name(ret));
-        // Handle failure (e.g., update OLED, log error)
-        if (oled_err == ESP_OK)
-        { // Check if OLED is available
-             oled_write_string(2, "OTA Failed!");
-             // Display error code on line 3 if possible
-             char err_buf[20];
-             snprintf(err_buf, sizeof(err_buf), "Err: %s", esp_err_to_name(ret));
-             err_buf[sizeof(err_buf)-1] = '\0'; // Ensure null termination
-             oled_write_string(3, err_buf);
-             oled_refresh();
-        }
-    }
-}
 
 /**
  * ****************************************************************************
@@ -215,7 +150,7 @@ void app_main(void)
         // Display Welcome Message on OLED
         oled_clear_buffer();
         oled_write_string(0, "WAVE ROVER"); // Line 0
-        oled_write_string(1, "ESP-IDF v1.2"); // Line 1 
+        oled_write_string(1, "FW v00.02"); // Line 1, version number (MAJOR.MINOR, 2 digits each, e.g., 00.01)
         oled_write_string(2, "Initializing..."); // Line 2
         oled_err = oled_refresh();
         if (oled_err != ESP_OK) {

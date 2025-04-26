@@ -25,11 +25,7 @@ idf_component_register(SRCS "app_main.c"
                                 motor_control
                                 oled_display
                                 web_server    
-                                esp_http_server
-                                esp_https_ota  
                       )
 
-# Embed the certificate file
-target_add_binary_data(${COMPONENT_TARGET} "certs/apache-selfsigned.crt" TEXT EMBED_IN_RODATA)
 
 

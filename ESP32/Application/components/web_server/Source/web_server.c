@@ -15,12 +15,13 @@
 #include "freertos/task.h"
 #include "freertos/event_groups.h" // Needed for event groups
 #include <lwip/sockets.h> // For inet_ntoa
+#include "esp_http_client.h"
+#include "esp_https_ota.h"
+#include "oled_display.h"
 
-// Declare the OTA update function from app_main.c
-extern void perform_ota_update();
+static void perform_ota_update();
+
 // Declare oled functions needed here (or pass IP back via callback/queue)
-extern esp_err_t oled_write_string(uint8_t line, const char* text);
-extern esp_err_t oled_refresh(void);
 extern esp_err_t oled_err; // Access global oled_err status
 
 // --- Station Mode Configuration ---
@@ -36,6 +37,8 @@ static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
+#define FIRMWARE_UPGRADE_URL "https://192.168.1.194/firmware_wave_rover_driver.bin"
+
 // Motor control parameters (adjust PWM value as needed)
 #define MOTOR_CONTROL_PWM 180 // Example PWM value for movement
 
@@ -43,6 +46,12 @@ static const char *TAG = "WEB_SERVER_STA"; // Changed tag slightly
 static httpd_handle_t server = NULL;
 static int s_retry_num = 0; // Connection retry counter
 static char sta_ip_addr_str[16] = "0.0.0.0"; // To store the assigned IP
+
+/* External symbol declarations for the OTA server certificate */
+extern const uint8_t server_cert_pem_start[] asm("_binary_apache_selfsigned_crt_start");
+extern const uint8_t server_cert_pem_end[]   asm("_binary_apache_selfsigned_crt_end");
+
+static const char *OTA_TAG = "OTA_UPDATE";
 
 // Basic HTML Page with Motor Control Buttons and OTA Button
 const char *HTML_PAGE = R"rawliteral(
@@ -335,6 +344,63 @@ static esp_err_t start_webserver(void)
 
     ESP_LOGE(TAG, "Error starting server!");
     return ret;
+}
+
+static void perform_ota_update()
+{
+    ESP_LOGI(OTA_TAG, "Starting OTA update from URL: %s", FIRMWARE_UPGRADE_URL);
+
+    // Display "OTA Update..." on OLED if available
+    if (oled_err == ESP_OK) {
+        oled_clear_buffer();
+        oled_write_string(0, "WAVE ROVER");
+        oled_write_string(1, "OTA Update...");
+        oled_write_string(2, "Downloading...");
+        oled_write_string(3, ""); // Clear line 3
+        oled_refresh();
+    }
+
+    esp_http_client_config_t http_config =
+    {
+        .url = FIRMWARE_UPGRADE_URL,
+        .cert_pem = (char *)server_cert_pem_start,
+        .timeout_ms = 10000, // Set a specific timeout in milliseconds (e.g., 10 seconds)
+        .keep_alive_enable = true,
+    };
+
+    esp_https_ota_config_t ota_config =
+    {
+        .http_config = &http_config,
+    };
+
+    esp_err_t ret = esp_https_ota(&ota_config);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(OTA_TAG, "OTA Update Successful, Rebooting...");
+        // Display "OTA Success!" briefly before reboot (might not be visible)
+        if (oled_err == ESP_OK) {
+            oled_write_string(2, "OTA Success!");
+            oled_write_string(3, "Rebooting...");
+            oled_refresh();
+            vTaskDelay(pdMS_TO_TICKS(500)); // Short delay to show message
+        }
+        esp_restart();
+    }
+    else
+    {
+        ESP_LOGE(OTA_TAG, "OTA Update Failed: %s", esp_err_to_name(ret));
+        // Handle failure (e.g., update OLED, log error)
+        if (oled_err == ESP_OK)
+        { // Check if OLED is available
+             oled_write_string(2, "OTA Failed!");
+             // Display error code on line 3 if possible
+             char err_buf[20];
+             snprintf(err_buf, sizeof(err_buf), "Err: %s", esp_err_to_name(ret));
+             err_buf[sizeof(err_buf)-1] = '\0'; // Ensure null termination
+             oled_write_string(3, err_buf);
+             oled_refresh();
+        }
+    }
 }
 
 // Public function to initialize the web server component
