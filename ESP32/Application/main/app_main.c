@@ -150,7 +150,7 @@ void app_main(void)
         // Display Welcome Message on OLED
         oled_clear_buffer();
         oled_write_string(0, "WAVE ROVER"); // Line 0
-        oled_write_string(1, "FW v00.02"); // Line 1, version number (MAJOR.MINOR, 2 digits each, e.g., 00.01)
+        oled_write_string(1, "FW v00.03"); // Line 1, version number (MAJOR.MINOR, 2 digits each, e.g., 00.01)
         oled_write_string(2, "Initializing..."); // Line 2
         oled_err = oled_refresh();
         if (oled_err != ESP_OK) {
