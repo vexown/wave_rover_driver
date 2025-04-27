@@ -26,6 +26,11 @@
 /*******************************************************************************/
 /*                                  MACROS                                     */
 /*******************************************************************************/
+/* Font size for the characters. The font used is 8x8 pixels, which is common
+ * for many small displays. This should match the font data used in the project.
+ * which is defined in the .c file corresponding to this header file. */
+#define FONT_WIDTH 8
+#define FONT_HEIGHT 8
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
