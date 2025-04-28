@@ -340,6 +340,42 @@ void web_server_print(const char *message)
     }
 }
 
+bool web_server_is_connected(void)
+{
+    if (WiFi_EventGroup == NULL) 
+    {
+        return false; // Event group not initialized
+    }
+
+    /* Check if the bit indicating connection is set in the event group */
+    EventBits_t bits = xEventGroupGetBits(WiFi_EventGroup);
+    return (bits & WIFI_CONNECTED_BIT) != 0;
+}
+
+esp_err_t web_server_get_ip(char *ip_buffer, size_t buffer_size)
+{
+    if (ip_buffer == NULL || buffer_size == 0) 
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Based on the connection status, either provide the IP address or a value indicating disconnection */
+    if (web_server_is_connected()) 
+    {
+        strncpy(ip_buffer, STA_IP_Addr_String, buffer_size - 1);
+        ip_buffer[buffer_size - 1] = '\0'; // Ensure null termination
+
+        return ESP_OK;
+    } 
+    else 
+    {
+        strncpy(ip_buffer, "No IP", buffer_size - 1);
+        ip_buffer[buffer_size - 1] = '\0';
+
+        return ESP_FAIL;
+    }
+}
+
 /*******************************************************************************/
 /*                     STATIC FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
@@ -422,6 +458,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) 
     {
+        /* Clear connected bit on start attempt */
+        if (WiFi_EventGroup != NULL) 
+        {
+            xEventGroupClearBits(WiFi_EventGroup, WIFI_CONNECTED_BIT);
+        }
         /* Connect only after the WIFI_EVENT_STA_START event is received, which indicates
          * that the WiFi driver is ready to connect to an Access Point (AP). */
         esp_wifi_connect();
@@ -429,6 +470,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
     } 
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) 
     {
+        /* Clear connected bit on disconnect */
+        if (WiFi_EventGroup != NULL) 
+        {
+            xEventGroupClearBits(WiFi_EventGroup, WIFI_CONNECTED_BIT);
+        }
         /* In case of disconnection, attempt to connect again for maximum of WIFI_MAXIMUM_RETRY times */
         if (s_retry_num < WIFI_MAXIMUM_RETRY) 
         {
@@ -440,7 +486,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         else 
         {
             /* After all retires failed, set the event group bit to indicate failure */
-            xEventGroupSetBits(WiFi_EventGroup, WIFI_FAIL_BIT);
+            if (WiFi_EventGroup != NULL) 
+            {
+                xEventGroupSetBits(WiFi_EventGroup, WIFI_FAIL_BIT);
+            }
             ESP_LOGE(TAG, "Connect to the AP failed after %d retries", WIFI_MAXIMUM_RETRY);
 
             /* Update OLED display with failure message */
@@ -474,9 +523,12 @@ static void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t eve
         /* Convert IP address to string format and store it in STA_IP_Addr_String */
         snprintf(STA_IP_Addr_String, sizeof(STA_IP_Addr_String), IPSTR, IP2STR(&event->ip_info.ip));
 
-        /* Set the WiFi event group bit to indicate successful connection */
-        xEventGroupSetBits(WiFi_EventGroup, WIFI_CONNECTED_BIT);
-
+        /* Set the WiFi event group bit to indicate successful connection and clear the fail bit */
+        if (WiFi_EventGroup != NULL) 
+        {
+            xEventGroupClearBits(WiFi_EventGroup, WIFI_FAIL_BIT); // Clear potential previous failure
+            xEventGroupSetBits(WiFi_EventGroup, WIFI_CONNECTED_BIT);
+        }
         /* Update OLED display with connection status and IP address */
         if (oled_err == ESP_OK) 
         {

@@ -63,5 +63,21 @@ esp_err_t web_server_init(void);
  */
 void web_server_print(const char *message);
 
+/**
+ * @brief Gets the current IP address assigned to the ESP32 in STA mode.
+ *
+ * @param ip_buffer Buffer to store the IP address string.
+ * @param buffer_size Size of the ip_buffer.
+ * @return esp_err_t ESP_OK if IP address was copied, ESP_FAIL otherwise (e.g., not connected).
+ */
+esp_err_t web_server_get_ip(char *ip_buffer, size_t buffer_size);
+
+/**
+ * @brief Gets the current WiFi connection status.
+ *
+ * @return bool true if connected, false otherwise.
+ */
+bool web_server_is_connected(void);
+
 
 #endif /* WEB_SERVER_H */
