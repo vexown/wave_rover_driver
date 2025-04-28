@@ -62,7 +62,7 @@
 #define MOTOR_CONTROL_PWM 180 // Example PWM value for movement
 
 /* Max length for the message to be displayed on the web page */
-#define WEBSERVER_PRINT_MAX_LEN 100 // in bytes
+#define WEBSERVER_PRINT_MAX_LEN 512 // in bytes
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
