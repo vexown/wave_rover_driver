@@ -147,7 +147,14 @@ static esp_lcd_panel_handle_t panel_handle = NULL;
 
 /* Buffer for the OLED display. The size is determined by the width and height of the display.
  * The buffer is used to store pixel data before sending it to the display. */
+#ifdef UNIT_TEST
+/* For unit testing, we expose the buffer to allow verification of its contents.
+ * This is done by NOT defining the buffer as static in this file. */
+uint8_t oled_buffer[OLED_WIDTH * (OLED_HEIGHT / 8)];
+#else
+/* For normal operation, we keep the buffer static to limit its scope to this file. */
 static uint8_t oled_buffer[OLED_WIDTH * (OLED_HEIGHT / 8)];
+#endif
 
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
