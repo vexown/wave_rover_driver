@@ -142,6 +142,15 @@ fi
 # Modify the CMakeLists.txt in the copied UnitTests directory
 CMAKE_FILE="$SCRIPT_DIR/CMakeLists.txt" # Absolute path
 
+# Check if the file exists (should exist after the copy step)
+if [ ! -f "$CMAKE_FILE" ]; then
+    echo "Error: $CMAKE_FILE not found."
+    exit 1
+fi
+
+# Modify the CMakeLists.txt to include the application components directory
+echo "Modifying $CMAKE_FILE to include application components..."
+
 # Check if the modification is already done to avoid unnecessary changes/errors
 if ! grep -q 'list(APPEND EXTRA_COMPONENT_DIRS "../Application/components")' "$CMAKE_FILE"; then
     echo "Modifying $CMAKE_FILE to include application components..."
@@ -166,6 +175,31 @@ if ! grep -q 'list(APPEND EXTRA_COMPONENT_DIRS "../Application/components")' "$C
     fi
 else
      echo "$CMAKE_FILE already configured for application components."
+fi
+
+# Add compile definition for UNIT_TEST
+echo "Adding UNIT_TEST compile definition to $CMAKE_FILE..."
+
+# Check if the compile definition is already added
+if ! grep -q 'add_compile_definitions(UNIT_TEST)' "$CMAKE_FILE"; then
+    # Use sed to insert the line after cmake_minimum_required(...)
+    # The 'a\' command appends text on the next line after the matched line
+    # Create a backup file .bak
+    sed -i.bak '/^cmake_minimum_required(/a add_compile_definitions(UNIT_TEST)' "$CMAKE_FILE"
+
+    # Check if sed command was successful
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to add compile definition to $CMAKE_FILE."
+        # Optional: restore backup if needed, otherwise leave .bak file for inspection
+        # mv "$CMAKE_FILE.bak" "$CMAKE_FILE"
+        exit 1
+    else
+        echo "Successfully added 'add_compile_definitions(UNIT_TEST)' to $CMAKE_FILE."
+        # Remove the backup file on success
+        rm "$CMAKE_FILE.bak"
+    fi
+else
+    echo "'add_compile_definitions(UNIT_TEST)' already present in $CMAKE_FILE."
 fi
 
 # Find components with a 'test' subdirectory
