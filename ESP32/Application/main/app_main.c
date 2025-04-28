@@ -170,6 +170,8 @@ void app_main(void)
         LOG("Web Server Initialized.");
     }
 
+    web_server_print("Hello from the Wave Rover!");
+
     LOG("Entering idle loop. Connect to WiFi AP and control via web server.");
 
     /* Task loop */

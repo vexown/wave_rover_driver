@@ -60,6 +60,10 @@
 
 /* Motor control parameters */
 #define MOTOR_CONTROL_PWM 180 // Example PWM value for movement
+
+/* Max length for the message to be displayed on the web page */
+#define WEBSERVER_PRINT_MAX_LEN 100 // in bytes
+
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
@@ -184,6 +188,16 @@ static esp_err_t control_get_handler(httpd_req_t *req);
 static esp_err_t ota_get_handler(httpd_req_t *req);
 
 /**
+ * @brief HTTP GET handler for the "/print" URI.
+ *
+ * @details Sends the current message stored internally.
+ *
+ * @param req Pointer to the HTTP request structure.
+ * @return esp_err_t ESP_OK on success.
+ */
+static esp_err_t print_get_handler(httpd_req_t *req);
+
+/**
  * @brief Starts the HTTP web server.
  *
  * @details Initializes the HTTP server with default configuration and registers
@@ -209,6 +223,9 @@ static int s_retry_num = 0;
 
 /* Variable to store the assigned IP address after connection */
 static char STA_IP_Addr_String[16] = "0.0.0.0";
+
+/* Buffer to store the latest message */
+static char web_server_print_buffer[WEBSERVER_PRINT_MAX_LEN] = "Initializing...";
 
 /**
  * @brief URI Definitions
@@ -243,6 +260,14 @@ static const httpd_uri_t uri_ota =
     .uri       = "/ota",
     .method    = HTTP_GET,
     .handler   = ota_get_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t uri_status =
+{
+    .uri       = "/print",
+    .method    = HTTP_GET,
+    .handler   = print_get_handler,
     .user_ctx  = NULL
 };
 
@@ -293,6 +318,26 @@ esp_err_t web_server_init(void)
     ESP_LOGI(TAG, "Web Server started successfully on IP: %s", STA_IP_Addr_String);
 
     return ret; // This should always be ESP_OK, errors would have been caught earlier
+}
+
+void web_server_print(const char *message)
+{
+    if (message) 
+    {
+        /* Take the input message and copy it to the web_server_print_buffer. */
+        /* If the message is longer than WEBSERVER_PRINT_MAX_LEN, quitely truncate it.
+         * This is a simple way to avoid buffer overflow and therefore crashes, undefined behavior and security vulnerabilities. */
+        strncpy(web_server_print_buffer, message, WEBSERVER_PRINT_MAX_LEN - 1);
+
+        /* Ensure the last character is null-terminated. */
+        web_server_print_buffer[WEBSERVER_PRINT_MAX_LEN - 1] = '\0';
+    }
+    else 
+    {
+        /* If the message is NULL, set the buffer to a message indicating the error. */
+        strncpy(web_server_print_buffer, "You can't send a NULL message!", WEBSERVER_PRINT_MAX_LEN - 1);
+        web_server_print_buffer[WEBSERVER_PRINT_MAX_LEN - 1] = '\0';
+    }
 }
 
 /*******************************************************************************/
@@ -588,6 +633,7 @@ static esp_err_t start_webserver(void)
         httpd_register_uri_handler(server, &uri_root);
         httpd_register_uri_handler(server, &uri_control);
         httpd_register_uri_handler(server, &uri_ota);
+        httpd_register_uri_handler(server, &uri_status);
 
         return ESP_OK;
     }
@@ -720,6 +766,15 @@ static esp_err_t ota_get_handler(httpd_req_t *req)
     perform_ota_update();
 
     return ESP_OK; // Note: Code here might not be reached if OTA causes a reboot immediately
+}
+
+static esp_err_t print_get_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Serving status request");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, web_server_print_buffer, HTTPD_RESP_USE_STRLEN);
+    
+    return ESP_OK;
 }
 
 

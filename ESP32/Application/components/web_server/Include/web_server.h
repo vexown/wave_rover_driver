@@ -53,5 +53,15 @@
  */
 esp_err_t web_server_init(void);
 
+/**
+ * @brief Print a message to the web server. Can be used for debugging or status updates.
+ *
+ * @param message The null-terminated string containing the status message of a length
+ *                less than WEBSERVER_PRINT_MAX_LEN.
+ *                If the message is longer than WEBSERVER_PRINT_MAX_LEN, it will be truncated.
+ *                If the message is NULL, a default error message will be set.
+ */
+void web_server_print(const char *message);
+
 
 #endif /* WEB_SERVER_H */

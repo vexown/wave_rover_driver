@@ -54,6 +54,7 @@ const char *HTML_PAGE = R"rawliteral(
     .ota { background-color: #ff9800; } /* Style for OTA button */
     .grid-container { display: grid; grid-template-columns: auto auto auto; padding: 10px; justify-content: center; }
     .grid-item { padding: 20px; font-size: 30px; text-align: center; }
+    #status { margin-top: 20px; font-style: italic; color: #555; } /* Style for status message */
     </style>
     <script>
     function sendCmd(dir) {
@@ -77,6 +78,20 @@ const char *HTML_PAGE = R"rawliteral(
           });
       }
     }
+    // Function to fetch and update status
+    function updateStatus() {
+      fetch('/print')
+        .then(response => response.text())
+        .then(data => {
+          document.getElementById('status').innerText = 'Status: ' + data;
+        })
+        .catch(error => {
+          console.error('Error fetching status:', error);
+          document.getElementById('status').innerText = 'Status: Error loading status';
+        });
+    }
+    // Fetch status when the page loads
+    window.onload = updateStatus;
     </script>
     </head>
     <body>
@@ -96,6 +111,8 @@ const char *HTML_PAGE = R"rawliteral(
     <div>
       <button class="btn ota" onclick="startOta()">Update Firmware</button>
     </div>
+    <!-- Element to display the status message -->
+    <div id="status">Loading status...</div>
     </body>
     </html>
     )rawliteral";
