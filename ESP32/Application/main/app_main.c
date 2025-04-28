@@ -18,11 +18,7 @@
 /*******************************************************************************/
 /*                                 MACROS                                      */
 /*******************************************************************************/
-#define FW_VERSION "00.04" // Firmware version (MAJOR.MINOR)
-
-#define MOTOR_TEST_PWM 150 // Define a PWM value for testing (0-255)
-#define MOTOR_TEST_DELAY_MS 2000 // Delay in milliseconds for each movement
-#define MOTOR_STOP_DELAY_MS 1000 // Delay in milliseconds for stops
+#define FW_VERSION "01.00" // Firmware version (MAJOR.MINOR)
 
 /*******************************************************************************/
 /*                               DATA TYPES                                    */
