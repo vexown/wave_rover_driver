@@ -21,6 +21,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h" 
+#include "freertos/semphr.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -228,6 +229,10 @@ static char STA_IP_Addr_String[16] = "0.0.0.0";
 /* Buffer to store the latest message */
 static char web_server_print_buffer[WEBSERVER_PRINT_MAX_LEN] = "Initializing...";
 
+/* Sequence Number Handling */
+static uint32_t lastProcessedSequenceNumber = 0; // Track the last processed sequence number
+static SemaphoreHandle_t sequenceMutex = NULL; // Mutex to protect sequence number access
+
 /**
  * @brief URI Definitions
  *
@@ -279,6 +284,13 @@ static const httpd_uri_t uri_status =
 esp_err_t web_server_init(void) 
 {
     esp_err_t ret = ESP_OK;
+
+    sequenceMutex = xSemaphoreCreateMutex();
+    if (sequenceMutex == NULL) 
+    {
+        ESP_LOGE(TAG, "Failed to create sequence mutex");
+        return ESP_FAIL;
+    }
 
     /* #01 - Initialize NVS Flash */
     /* NVS (Non-Volatile Storage) is a partition in the ESP32's flash memory
@@ -704,6 +716,12 @@ static esp_err_t wifi_init_sta(void)
 
 static esp_err_t start_webserver(void)
 {
+    if(sequenceMutex == NULL) 
+    {
+        ESP_LOGE(TAG, "Sequence mutex not initialized (should be created in web_server_init)");
+        return ESP_FAIL;
+    }
+
     /* #01 - Initialize the HTTP config structure with default values */
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     /* Enable Least Recently Used (LRU) connection purge.
@@ -771,9 +789,12 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 
 static esp_err_t control_get_handler(httpd_req_t *req)
 {
-    char*  buf;
-    size_t query_len;
-    char dir[10] = {0}; // Buffer for direction parameter
+    char* buf = NULL;               // Buffer for URL query string
+    size_t query_len;               // Length of the URL query string
+    char dir[10] = {0};             // Buffer for direction parameter
+    char seq_str[12] = {0};         // Buffer for sequence number string (large enough for uint32_t)
+    uint32_t receivedSeq = 0;       // Received sequence number
+    bool process_command = false;   // Flag to decide if motor command should be executed
 
     /* Get the length of the URL query string */
     query_len = httpd_req_get_url_query_len(req) + 1; // +1 for null terminator
@@ -799,18 +820,60 @@ static esp_err_t control_get_handler(httpd_req_t *req)
             if (httpd_query_key_value(buf, "dir", dir, sizeof(dir)) == ESP_OK) 
             {
                 ESP_LOGI(TAG, "Got parameter dir=%s", dir);
-
-                /* Call the appropriate motor control function based on the 'dir' parameter */
-                if (strcmp(dir, "forward") == 0)        { motor_move_forward(MOTOR_CONTROL_PWM); }
-                else if (strcmp(dir, "backward") == 0)  { motor_move_backward(MOTOR_CONTROL_PWM); }
-                else if (strcmp(dir, "left") == 0)      { motor_turn_left(MOTOR_CONTROL_PWM); }
-                else if (strcmp(dir, "right") == 0)     { motor_turn_right(MOTOR_CONTROL_PWM); }
-                else if (strcmp(dir, "stop") == 0)      { motor_stop(); }
-                else { ESP_LOGW(TAG, "Unknown direction: %s", dir); }
             } 
             else 
             {
                 ESP_LOGW(TAG, "Parameter 'dir' not found in query");
+                /* No motor control command to process, but we still need to check for 'seq' 
+                 * because we need to keep track of the sequence number for future commands. */
+            }
+
+            /* Parse the query string to extract the 'seq' parameter value */
+            if (httpd_query_key_value(buf, "seq", seq_str, sizeof(seq_str)) == ESP_OK)
+            {
+                /* Convert the sequence number string to an unsigned long */
+                char *endptr; // This will point to the first character AFTER the number. If no number is found, it will point to seq_str.
+                receivedSeq = strtoul(seq_str, &endptr, 10);
+
+                /* Check if the conversion was successful and if the entire string was processed */
+                /* - if *endptr is NOT a null terminator it means that the string had non-numeric characters after the number
+                 * - if endptr == seq_str it means that no conversion was performed (i.e., the string was not a valid number) */
+                if (*endptr != '\0' || endptr == seq_str)
+                {
+                    ESP_LOGW(TAG, "Invalid sequence number format: %s", seq_str);
+                } 
+                else 
+                {
+                    ESP_LOGI(TAG, "Got parameter dir=%s, seq=%lu", dir, receivedSeq);
+
+                    /* Critical Section: Check if the received sequence number is greater than the last processed one */
+                    if (xSemaphoreTake(sequenceMutex, portMAX_DELAY) == pdTRUE)
+                    {
+                        if (receivedSeq > lastProcessedSequenceNumber)
+                        {
+                            ESP_LOGD(TAG, "Processing Seq %lu (Last was %lu)", receivedSeq, lastProcessedSequenceNumber);
+                            lastProcessedSequenceNumber = receivedSeq;
+                            process_command = true; // Order is correct, process the command
+                        }
+                        else
+                        {
+                            ESP_LOGW(TAG, "Ignoring out-of-order/duplicate Seq %lu (Last processed: %lu)", receivedSeq, lastProcessedSequenceNumber);
+                            process_command = false;
+                        }
+                        xSemaphoreGive(sequenceMutex);
+                    } 
+                    else 
+                    {
+                        ESP_LOGE(TAG, "Failed to take sequence mutex!");
+                        process_command = false; // Safety: don't process if mutex fails
+                    }
+                    /* End of Critical Section */
+                }
+            }
+            else
+            {
+                ESP_LOGW(TAG, "Parameter 'seq' not found - ignoring command");
+                process_command = false; // Require sequence number
             }
         } 
         else 
@@ -827,6 +890,21 @@ static esp_err_t control_get_handler(httpd_req_t *req)
         ESP_LOGI(TAG, "No URL query found");
     }
 
+    /* Execute the motor control command but only if the sequence number is valid and the command is recognized (valid direction) */
+    if (process_command && strlen(dir) > 0)
+    {
+        if (strcmp(dir, "forward") == 0)        { motor_move_forward(MOTOR_CONTROL_PWM); }
+        else if (strcmp(dir, "backward") == 0)  { motor_move_backward(MOTOR_CONTROL_PWM); }
+        else if (strcmp(dir, "left") == 0)      { motor_turn_left(MOTOR_CONTROL_PWM); }
+        else if (strcmp(dir, "right") == 0)     { motor_turn_right(MOTOR_CONTROL_PWM); }
+        else if (strcmp(dir, "stop") == 0)      { motor_stop(); }
+        else { ESP_LOGW(TAG, "Unknown direction: %s", dir); }
+    }
+    else
+    {
+        ESP_LOGW(TAG, "Command not processed due to invalid sequence or missing direction");
+    }
+
     /* Send a response back to the client using the same request context.
      * This is crucial for completing the HTTP request-response cycle.
      * By default, httpd_resp_send sends a "200 OK" status code, indicating
@@ -837,34 +915,20 @@ static esp_err_t control_get_handler(httpd_req_t *req)
      * that the request was processed successfully. The content is not
      * essential but is useful for debugging/logging purposes.
      **/
-    char response_buf[64]; // Buffer for the response message
+    char response_buf[80]; // Buffer for the response message
 
-    /* Check if the 'dir' variable contains a valid command string. */
-    /* strlen(dir) > 0 indicates that httpd_query_key_value successfully extracted 'dir'. */
-    if (strlen(dir) > 0)
+    /* Construct the response message based on the command processing result */
+    if (process_command) // Seq was parsed and command was processed
     {
-        /* Check if the command was one of the recognized ones. */
-        if (strcmp(dir, "forward") == 0 || strcmp(dir, "backward") == 0 ||
-            strcmp(dir, "left") == 0 || strcmp(dir, "right") == 0 ||
-            strcmp(dir, "stop") == 0)
-        {
-            /* Format a specific success message including the command. */
-            snprintf(response_buf, sizeof(response_buf), "Command received: %s", dir);
-        }
-        else
-        {
-            /* The 'dir' parameter was present but contained an unknown value. */
-            snprintf(response_buf, sizeof(response_buf), "Unknown command received: %s", dir);
-        }
-    }
-    else
-    {
-        /* 'dir' is empty. This happens if:
-         * 1. No query string was present (query_len <= 1).
-         * 2. Query string was present, but 'dir' parameter was missing.
-         * 3. Memory allocation for 'buf' failed earlier. */
-        strncpy(response_buf, "Command processed or invalid/missing 'dir' parameter", sizeof(response_buf) -1);
-        response_buf[sizeof(response_buf) - 1] = '\0'; /* Ensure null termination */
+        snprintf(response_buf, sizeof(response_buf), "Command %s (Seq %lu) processed", dir, receivedSeq);
+    } 
+    else if (receivedSeq > 0) // Seq was parsed but deemed out of order
+    { 
+        snprintf(response_buf, sizeof(response_buf), "Command %s (Seq %lu) ignored (out of order)", dir, receivedSeq);
+    } 
+    else // No query, missing seq, or invalid seq format
+    { 
+        strncpy(response_buf, "Command ignored (missing/invalid seq)", sizeof(response_buf) - 1);
     }
 
     /* Ensure null termination as snprintf might truncate without null-terminating if buffer is exactly full. */

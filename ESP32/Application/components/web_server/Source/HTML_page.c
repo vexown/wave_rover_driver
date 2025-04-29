@@ -315,6 +315,7 @@ const char *HTML_PAGE = R"rawliteral(
         const DEBOUNCE_RELEASE_DELAY = 150; // ms: Refractory period after release before new press allowed
 
         // --- State Variables ---
+        let commandSequenceNumber = 0; // For tracking command sequence to prevent out-of-sequence command processing on receiving side
         let canSendCommand = true;
         let pressTimeout = null;
         let releaseTimeout = null;
@@ -322,18 +323,21 @@ const char *HTML_PAGE = R"rawliteral(
 
         // --- Core Command Function ---
         function sendCmd(dir) {
-            // Send command to server
-            console.log('Sending Command:', dir); // Log for debugging
-            fetch('/control?dir=' + dir)
+            commandSequenceNumber++; // Increment command sequence number for each command sent
+            const currentSeq = commandSequenceNumber; // Capture current sequence number for logging
+
+            // Send command to server including the sequence number
+            console.log(`Sending Command: ${dir} (Seq: ${currentSeq})`); // Log with sequence
+            fetch(`/control?dir=${dir}&seq=${currentSeq}`) 
                 .then(response => response.text())
                 .then(data => {
-                    console.log('Command sent:', dir, 'Response:', data);
+                    console.log(`Command sent: ${dir} (Seq: ${currentSeq}), Response: ${data}`);
                     // Optional: Update status immediately based on command sent
                     // document.getElementById('status').innerText = `Command: ${dir}`; 
                     // updateStatus(); // Update status after sending command (might be delayed)
                 })
                 .catch(error => {
-                    console.error('Error sending command:', error);
+                    console.error(`Error sending command ${dir} (Seq: ${currentSeq}):`, error);
                     document.getElementById('status').innerText = 'Communication error: Failed to send command';
                 });
         }
