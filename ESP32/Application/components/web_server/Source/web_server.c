@@ -339,64 +339,49 @@ void web_server_print(const char *message)
     /* Check how much space is left in the buffer. strlen() returns the length of the string, 
        ending with a null terminator so it should tell us the length of the actual string
        content in the buffer, not the buffer size itself. */
-    size_t current_len = strlen(web_server_print_buffer); 
+    size_t current_len = strlen(web_server_print_buffer);
+    size_t message_to_add_len = strlen(message_to_add);
     size_t remaining_space = WEBSERVER_PRINT_MAX_LEN - current_len;
-
-    /* Check if there's any space remaining at all. If not, log a warning and return. */
-    if (remaining_space <= 1) 
-    {
-        ESP_LOGW(TAG, "Web server print buffer is full. Cannot append.");
-        return;
-    }
 
     const char *prefix = "";
     size_t prefix_len = 0;
 
     /* Determine prefix: Add newline and "[new]" only if buffer already has content. */
-    if (current_len > 0) 
+    if (current_len > 0)
     {
         prefix = "\n[new] "; // Add newline for separation, then the tag
         prefix_len = strlen(prefix);
-    } 
-    else 
-    {
-        /* For the very first message, no prefix needed. */
-        prefix = "";
-        prefix_len = 0;
     }
 
-    /* Calculate the total length needed for the new message with prefix and null terminator */
-    size_t message_to_add_len = strlen(message_to_add);
-    size_t required_space_for_prefix_and_msg = prefix_len + message_to_add_len + 1; // +1 for null terminator
+    /* Calculate the total space needed for the prefix, message, and null terminator */
+    size_t required_space = prefix_len + message_to_add_len + 1; // +1 for null terminator
 
-    /* Check if there's enough space for the prefix and the entire new message */
-    if (remaining_space >= required_space_for_prefix_and_msg)
+    /* Check if there's enough space for the prefix and the new message */
+    if (remaining_space >= required_space)
     {
         /* Append the prefix and the message using snprintf for safety */
         snprintf(web_server_print_buffer + current_len, remaining_space, "%s%s", prefix, message_to_add);
     }
-    /* Check if there's enough space for at least the prefix and one character of the message */
-    else if (remaining_space > prefix_len + 1)
-    {
-        /* Not enough space for the whole message, but enough to add prefix and truncate message */
-        ESP_LOGW(TAG, "Web server print buffer low on space, truncating message.");
-        snprintf(web_server_print_buffer + current_len, remaining_space, "%s%s", prefix, message_to_add);
-        /* snprintf handles truncation and null termination within remaining_space */
-    }
     else
     {
-        /* Not enough space to append even the prefix meaningfully. */
-        ESP_LOGW(TAG, "Web server print buffer full, cannot append message.");
-        /* Optionally, try to append a small marker like "[...]" if space allows */
-        const char *full_marker = "\n[...]";
-        size_t marker_len = strlen(full_marker);
-        if (remaining_space > marker_len) {
-             snprintf(web_server_print_buffer + current_len, remaining_space, "%s", full_marker);
+        /* Not enough space. Clear the buffer and add the new message. */
+        ESP_LOGW(TAG, "Web server print buffer full. Clearing and adding new message.");
+        /* Check if the new message itself fits in the buffer */
+        if (message_to_add_len + 1 > WEBSERVER_PRINT_MAX_LEN)
+        {
+            ESP_LOGW(TAG, "New message too long for buffer, truncating.");
+            /* Copy as much as possible, ensuring null termination */
+            strncpy(web_server_print_buffer, message_to_add, WEBSERVER_PRINT_MAX_LEN - 1);
+            web_server_print_buffer[WEBSERVER_PRINT_MAX_LEN - 1] = '\0';
         }
-        /* If even the marker doesn't fit, do nothing further. */
+        else
+        {
+            /* Copy the new message to the beginning of the cleared buffer */
+            strcpy(web_server_print_buffer, message_to_add);
+        }
     }
 
-    /* Ensure null termination as a safeguard, although snprintf should handle it. */
+    /* Ensure null termination as a final safeguard, although snprintf/strcpy/strncpy should handle it. */
     web_server_print_buffer[WEBSERVER_PRINT_MAX_LEN - 1] = '\0';
 }
 
