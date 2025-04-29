@@ -74,7 +74,6 @@ const char *HTML_PAGE = R"rawliteral(
         min-height: 100vh;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
     }
     
     .header {
@@ -209,6 +208,7 @@ const char *HTML_PAGE = R"rawliteral(
         margin-top: 30px;
         font-size: 12px;
         color: #666;
+        margin-top: auto;
     }
     
     .battery-container {
