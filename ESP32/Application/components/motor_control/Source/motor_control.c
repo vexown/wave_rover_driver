@@ -19,6 +19,7 @@
 /* ESP-IDF Includes */
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "driver/ledc.h"
 #include "driver/gpio.h"
@@ -219,6 +220,8 @@ static esp_err_t all_motors_set_brake(void);
 /*******************************************************************************/
 /*                             STATIC VARIABLES                                */
 /*******************************************************************************/
+/* Mutex for accessing any of the motor control functions. */
+static SemaphoreHandle_t motor_mutex = NULL;
 
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
@@ -226,6 +229,13 @@ static esp_err_t all_motors_set_brake(void);
 esp_err_t motor_init(void) 
 {
     ESP_LOGI(TAG, "Initializing motor control");
+
+    motor_mutex = xSemaphoreCreateMutex();
+    if (motor_mutex == NULL) 
+    {
+        ESP_LOGE(TAG, "Failed to create motor mutex");
+        return ESP_FAIL;
+    }
 
     /* #01 - Define and apply the GPIO configuration for pins which are used for motor control, specifically
      * the direction control pins (AIN1, AIN2 for left motors and BIN1, BIN2 for right motors) */
@@ -340,86 +350,152 @@ esp_err_t motor_set_speed(int left_motors_pwm, int right_motors_pwm)
 
 esp_err_t motor_stop(void) 
 {
-    ESP_LOGI(TAG, "Stopping motors");
+    if (motor_mutex == NULL) return ESP_ERR_INVALID_STATE;
 
-    /* Set all motors to brake (active braking). You could also use coast (freewheel) if desired. */
-    esp_err_t err_brake = all_motors_set_brake();
-    if (err_brake != ESP_OK) 
+    if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGE(TAG, "Failed to set motors to brake: %s", esp_err_to_name(err_brake));
-        return err_brake;
-    }
+        ESP_LOGI(TAG, "Stopping motors");
 
-    /* Set the duty cycle of both left motors (A) to 0 (stop) */
-    esp_err_t duty_err_set_A = ledc_set_duty(LEDC_MODE, LEFT_MOTOR_LEDC_CHANNEL_A, 0);
-    if (duty_err_set_A != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "Failed to set left motor duty to 0: %s", esp_err_to_name(duty_err_set_A));
-        return duty_err_set_A;
+        /* Set all motors to brake (active braking). You could also use coast (freewheel) if desired. */
+        esp_err_t err_brake = all_motors_set_brake();
+        if (err_brake != ESP_OK) 
+        {
+            ESP_LOGE(TAG, "Failed to set motors to brake: %s", esp_err_to_name(err_brake));
+            xSemaphoreGive(motor_mutex); 
+            return err_brake;
+        }
+
+        /* Set the duty cycle of both left motors (A) to 0 (stop) */
+        esp_err_t duty_err_set_A = ledc_set_duty(LEDC_MODE, LEFT_MOTOR_LEDC_CHANNEL_A, 0);
+        if (duty_err_set_A != ESP_OK) 
+        {
+            ESP_LOGE(TAG, "Failed to set left motor duty to 0: %s", esp_err_to_name(duty_err_set_A));
+            xSemaphoreGive(motor_mutex); 
+            return duty_err_set_A;
+        }
+        esp_err_t duty_err_update_A = ledc_update_duty(LEDC_MODE, LEFT_MOTOR_LEDC_CHANNEL_A);
+        if (duty_err_update_A != ESP_OK) 
+        {
+            ESP_LOGE(TAG, "Failed to update left motor duty: %s", esp_err_to_name(duty_err_update_A));
+            xSemaphoreGive(motor_mutex); 
+            return duty_err_update_A;
+        }
+        /* Set the duty cycle of both right motors (B) to 0 (stop) */
+        esp_err_t duty_err_set_B = ledc_set_duty(LEDC_MODE, RIGHT_MOTOR_LEDC_CHANNEL_B, 0);
+        if (duty_err_set_B != ESP_OK) 
+        {
+            ESP_LOGE(TAG, "Failed to set right motor duty to 0: %s", esp_err_to_name(duty_err_set_B));
+            xSemaphoreGive(motor_mutex); 
+            return duty_err_set_B;
+        }
+        esp_err_t duty_err_update_B = ledc_update_duty(LEDC_MODE, RIGHT_MOTOR_LEDC_CHANNEL_B);
+        if (duty_err_update_B != ESP_OK) 
+        {
+            ESP_LOGE(TAG, "Failed to update right motor duty: %s", esp_err_to_name(duty_err_update_B));
+            xSemaphoreGive(motor_mutex); 
+            return duty_err_update_B;
+        }
     }
-    esp_err_t duty_err_update_A = ledc_update_duty(LEDC_MODE, LEFT_MOTOR_LEDC_CHANNEL_A);
-    if (duty_err_update_A != ESP_OK) 
+    else
     {
-        ESP_LOGE(TAG, "Failed to update left motor duty: %s", esp_err_to_name(duty_err_update_A));
-        return duty_err_update_A;
-    }
-    /* Set the duty cycle of both right motors (B) to 0 (stop) */
-    esp_err_t duty_err_set_B = ledc_set_duty(LEDC_MODE, RIGHT_MOTOR_LEDC_CHANNEL_B, 0);
-    if (duty_err_set_B != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "Failed to set right motor duty to 0: %s", esp_err_to_name(duty_err_set_B));
-        return duty_err_set_B;
-    }
-    esp_err_t duty_err_update_B = ledc_update_duty(LEDC_MODE, RIGHT_MOTOR_LEDC_CHANNEL_B);
-    if (duty_err_update_B != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "Failed to update right motor duty: %s", esp_err_to_name(duty_err_update_B));
-        return duty_err_update_B;
+        ESP_LOGE(TAG, "Failed to take motor mutex");
+        return ESP_ERR_TIMEOUT;
     }
 
     ESP_LOGI(TAG, "All motors stopped successfully");
+    xSemaphoreGive(motor_mutex); 
     return ESP_OK;
 }
 
 esp_err_t motor_move_forward(int pwm)
 {
-    ESP_LOGI(TAG, "Moving forward with PWM: %d", pwm);
+    if (motor_mutex == NULL) return ESP_ERR_INVALID_STATE;
 
-    return motor_set_speed(pwm, pwm);
+    if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        ESP_LOGI(TAG, "Moving forward with PWM: %d", pwm);
+
+        esp_err_t err = motor_set_speed(pwm, pwm); 
+        xSemaphoreGive(motor_mutex);
+        return err;
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to take motor mutex in motor_move_forward");
+        return ESP_ERR_TIMEOUT;
+    }
 }
 
 esp_err_t motor_move_backward(int pwm)
 {
-    ESP_LOGI(TAG, "Moving backward with PWM: %d", pwm);
+    if (motor_mutex == NULL) return ESP_ERR_INVALID_STATE;
+    
+    if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        ESP_LOGI(TAG, "Moving backward with PWM: %d", pwm);
 
-    /* Allow the flexibility of providing either positive or negative PWM values for backward movement.
-     * If the user provides a positive value to this function, we convert it to negative for backward movement 
-     * since we assume the user wants to move backward which requires negative PWM values in our code logic. */
-    int speed = (pwm < 0) ? pwm : -pwm;
+        /* Allow the flexibility of providing either positive or negative PWM values for backward movement.
+        * If the user provides a positive value to this function, we convert it to negative for backward movement 
+        * since we assume the user wants to move backward which requires negative PWM values in our code logic. */
+        int speed = (pwm < 0) ? pwm : -pwm;
 
-    return motor_set_speed(speed, speed);
+        esp_err_t err = motor_set_speed(speed, speed);
+        xSemaphoreGive(motor_mutex);
+        return err;
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to take motor mutex in motor_move_backward");
+        return ESP_ERR_TIMEOUT;
+    }
 }
 
 esp_err_t motor_turn_left(int pwm)
 {
-    ESP_LOGI(TAG, "Turning left with PWM: %d", pwm);
+    if (motor_mutex == NULL) return ESP_ERR_INVALID_STATE;
+    
+    if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        ESP_LOGI(TAG, "Turning left with PWM: %d", pwm);
 
-    /* Going left means the left motor should go backward and the right motor should go forward.
-     * We take the absolute value of the provided PWM as the speed of the turning. We set the sign 
-     * for each motor accordingly to achieve the desired turning effect. */
-    int speed = abs(pwm);
-    return motor_set_speed(-speed, speed);
+        /* Going left means the left motor should go backward and the right motor should go forward.
+        * We take the absolute value of the provided PWM as the speed of the turning. We set the sign 
+        * for each motor accordingly to achieve the desired turning effect. */
+        int speed = abs(pwm);
+
+        esp_err_t err = motor_set_speed(-speed, speed);
+        xSemaphoreGive(motor_mutex);
+        return err;
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to take motor mutex in motor_turn_left");
+        return ESP_ERR_TIMEOUT;
+    }
 }
 
 esp_err_t motor_turn_right(int pwm)
 {
-    ESP_LOGI(TAG, "Turning right with PWM: %d", pwm);
+    if (motor_mutex == NULL) return ESP_ERR_INVALID_STATE;
+    
+    if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        ESP_LOGI(TAG, "Turning right with PWM: %d", pwm);
 
-    /* Going right means the left motor should go forward and the right motor should go backward.
-     * We take the absolute value of the provided PWM as the speed of the turning. We set the sign 
-     * for each motor accordingly to achieve the desired turning effect. */
-    int speed = abs(pwm);
-    return motor_set_speed(speed, -speed);
+        /* Going right means the left motor should go forward and the right motor should go backward.
+        * We take the absolute value of the provided PWM as the speed of the turning. We set the sign 
+        * for each motor accordingly to achieve the desired turning effect. */
+        int speed = abs(pwm);
+
+        esp_err_t err = motor_set_speed(speed, -speed);
+        xSemaphoreGive(motor_mutex);
+        return err;
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to take motor mutex in motor_turn_right");
+        return ESP_ERR_TIMEOUT;
+    }
 }
 
 /*******************************************************************************/
