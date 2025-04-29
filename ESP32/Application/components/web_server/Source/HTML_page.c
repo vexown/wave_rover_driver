@@ -310,14 +310,6 @@ const char *HTML_PAGE = R"rawliteral(
 
   <script>
     function sendCmd(dir) {
-      // Visual feedback
-      const btnClass = dir === 'stop' ? '.btn.stop' : `.btn:contains('${dir.charAt(0).toUpperCase() + dir.slice(1)}')`;
-      const activeBtn = document.querySelector(btnClass);
-      if (activeBtn) {
-        activeBtn.classList.add('active');
-        setTimeout(() => activeBtn.classList.remove('active'), 200);
-      }
-      
       // Send command to server
       fetch('/control?dir=' + dir)
         .then(response => response.text())
@@ -369,22 +361,7 @@ const char *HTML_PAGE = R"rawliteral(
     
     // Start status updates when page loads
     window.onload = startStatusUpdates;
-    
-    // Helper function for button selection (since we don't have jQuery)
-    Document.prototype.querySelector = Document.prototype.querySelector || function(selector) {
-      if (selector.includes(':contains')) {
-        const containsText = selector.match(/:contains\('(.+?)'\)/)[1];
-        const elType = selector.split(':contains')[0];
-        const elements = document.querySelectorAll(elType);
-        for (let i = 0; i < elements.length; i++) {
-          if (elements[i].textContent.includes(containsText)) {
-            return elements[i];
-          }
-        }
-        return null;
-      }
-      return document.querySelector(selector);
-    };
+
   </script>
 </body>
 </html>
