@@ -339,14 +339,7 @@ void web_server_print(const char *message)
     const char *error_msg = "Error: NULL message received";
 
     /* If the message is NULL, add a message indicating the error. */
-    if (message == NULL) 
-    {
-        message_to_add = error_msg;
-    } 
-    else 
-    {
-        message_to_add = message;
-    }
+    message_to_add = (message == NULL) ? error_msg : message;
 
     /* Check how much space is left in the buffer. strlen() returns the length of the string, 
        ending with a null terminator so it should tell us the length of the actual string
@@ -358,10 +351,26 @@ void web_server_print(const char *message)
     const char *prefix = "";
     size_t prefix_len = 0;
 
-    /* Determine prefix: Add newline and "[new]" only if buffer already has content. */
+    /* Static variable to keep track of the message sequence number */
+    static uint32_t message_sequence_number = 0;
+    message_sequence_number++; // Increment for each new message
+
+    /* Buffer to hold the formatted prefix */
+    char prefix_buf[20]; // Large enough for "\n[Msg 4294967295] "
+
+    /* Determine the prefix based on the current length of the buffer */
     if (current_len > 0)
     {
-        prefix = "\n[new] "; // Add newline for separation, then the tag
+        /* Format the prefix string with the sequence number */
+        snprintf(prefix_buf, sizeof(prefix_buf), "\n[Msg %lu] ", message_sequence_number);
+        prefix = prefix_buf; // Point to the formatted prefix
+        prefix_len = strlen(prefix);
+    }
+    else
+    {
+        /* For the very first message, just add the sequence number without a newline */
+        snprintf(prefix_buf, sizeof(prefix_buf), "[Msg %lu] ", message_sequence_number);
+        prefix = prefix_buf; // Point to the formatted prefix
         prefix_len = strlen(prefix);
     }
 
