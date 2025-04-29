@@ -265,7 +265,11 @@ const char *HTML_PAGE = R"rawliteral(
     <div class="grid-container">
       <div class="grid-item"></div>
       <div class="grid-item">
-        <button class="btn" onclick="sendCmd('forward')">
+        <button class="btn" 
+                onmousedown="sendCmd('forward')" 
+                onmouseup="sendCmd('stop')" 
+                ontouchstart="sendCmd('forward')" 
+                ontouchend="sendCmd('stop')">
           <div class="icon">↑</div>
           Forward
         </button>
@@ -273,7 +277,11 @@ const char *HTML_PAGE = R"rawliteral(
       <div class="grid-item"></div>
       
       <div class="grid-item">
-        <button class="btn" onclick="sendCmd('left')">
+        <button class="btn" 
+                onmousedown="sendCmd('left')" 
+                onmouseup="sendCmd('stop')" 
+                ontouchstart="sendCmd('left')" 
+                ontouchend="sendCmd('stop')">
           <div class="icon">←</div>
           Left
         </button>
@@ -285,7 +293,11 @@ const char *HTML_PAGE = R"rawliteral(
         </button>
       </div>
       <div class="grid-item">
-        <button class="btn" onclick="sendCmd('right')">
+        <button class="btn" 
+                onmousedown="sendCmd('right')" 
+                onmouseup="sendCmd('stop')" 
+                ontouchstart="sendCmd('right')" 
+                ontouchend="sendCmd('stop')">
           <div class="icon">→</div>
           Right
         </button>
@@ -293,7 +305,11 @@ const char *HTML_PAGE = R"rawliteral(
       
       <div class="grid-item"></div>
       <div class="grid-item">
-        <button class="btn" onclick="sendCmd('backward')">
+        <button class="btn" 
+                onmousedown="sendCmd('backward')" 
+                onmouseup="sendCmd('stop')" 
+                ontouchstart="sendCmd('backward')" 
+                ontouchend="sendCmd('stop')">
           <div class="icon">↓</div>
           Backward
         </button>
