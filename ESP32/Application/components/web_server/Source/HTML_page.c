@@ -271,7 +271,7 @@ const char *HTML_PAGE = R"rawliteral(
                                 onmouseup="sendCmd('stop')"
                                 ontouchstart="sendCmd('forward')"
                                 ontouchend="sendCmd('stop')">
-                    <div class="icon">↑</div>
+                    <div class="icon" style="user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">↑</div>
                 </button>
             </div>
             <div class="grid-item"></div>
@@ -282,12 +282,12 @@ const char *HTML_PAGE = R"rawliteral(
                                 onmouseup="sendCmd('stop')"
                                 ontouchstart="sendCmd('left')"
                                 ontouchend="sendCmd('stop')">
-                    <div class="icon">←</div>
+                    <div class="icon" style="user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">←</div>
                 </button>
             </div>
             <div class="grid-item">
                 <button class="btn stop" style="width: 70px; height: 70px;" onclick="sendCmd('stop')">
-                    <div class="icon">■</div>
+                    <div class="icon" style="user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">■</div>
                 </button>
             </div>
             <div class="grid-item">
@@ -296,7 +296,7 @@ const char *HTML_PAGE = R"rawliteral(
                                 onmouseup="sendCmd('stop')"
                                 ontouchstart="sendCmd('right')"
                                 ontouchend="sendCmd('stop')">
-                    <div class="icon">→</div>
+                    <div class="icon" style="user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">→</div>
                 </button>
             </div>
 
@@ -307,7 +307,7 @@ const char *HTML_PAGE = R"rawliteral(
                                 onmouseup="sendCmd('stop')"
                                 ontouchstart="sendCmd('backward')"
                                 ontouchend="sendCmd('stop')">
-                    <div class="icon">↓</div>
+                    <div class="icon" style="user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">↓</div>
                 </button>
             </div>
             <div class="grid-item"></div>
