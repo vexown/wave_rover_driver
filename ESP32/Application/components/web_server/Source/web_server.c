@@ -61,7 +61,7 @@
 #define FIRMWARE_UPGRADE_URL "https://192.168.1.194/firmware_wave_rover_driver.bin"
 
 /* Motor control parameters */
-#define MOTOR_CONTROL_PWM 180 // Example PWM value for movement
+#define MOTOR_CONTROL_PWM 255 //TODO - make this configurable on the web page?
 
 /* Max length for the message to be displayed on the web page */
 #define WEBSERVER_PRINT_MAX_LEN 512 // in bytes
