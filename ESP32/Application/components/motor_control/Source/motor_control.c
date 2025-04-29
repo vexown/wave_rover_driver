@@ -27,6 +27,7 @@
 
 /* Project Includes */
 #include "motor_control.h"
+#include "web_server.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -338,6 +339,7 @@ esp_err_t motor_stop(void)
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
         ESP_LOGI(TAG, "Stopping motors");
+        web_server_print("Stopping motors");
 
         /* Set all motors to brake (active braking). You could also use coast (freewheel) if desired. */
         esp_err_t err_brake = all_motors_set_brake();
@@ -397,6 +399,7 @@ esp_err_t motor_move_forward(int pwm)
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
         ESP_LOGI(TAG, "Moving forward with PWM: %d", pwm);
+        web_server_print("Moving forward");
 
         esp_err_t err = motor_set_speed(pwm, pwm); 
         xSemaphoreGive(motor_mutex);
@@ -416,6 +419,7 @@ esp_err_t motor_move_backward(int pwm)
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
         ESP_LOGI(TAG, "Moving backward with PWM: %d", pwm);
+        web_server_print("Moving backward");
 
         /* Allow the flexibility of providing either positive or negative PWM values for backward movement.
         * If the user provides a positive value to this function, we convert it to negative for backward movement 
@@ -440,6 +444,7 @@ esp_err_t motor_turn_left(int pwm)
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
         ESP_LOGI(TAG, "Turning left with PWM: %d", pwm);
+        web_server_print("Turning left");
 
         /* Going left means the left motor should go backward and the right motor should go forward.
         * We take the absolute value of the provided PWM as the speed of the turning. We set the sign 
@@ -464,6 +469,7 @@ esp_err_t motor_turn_right(int pwm)
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
         ESP_LOGI(TAG, "Turning right with PWM: %d", pwm);
+        web_server_print("Turning right");
 
         /* Going right means the left motor should go forward and the right motor should go backward.
         * We take the absolute value of the provided PWM as the speed of the turning. We set the sign 
