@@ -827,7 +827,7 @@ static esp_err_t control_get_handler(httpd_req_t *req)
         ESP_LOGI(TAG, "No URL query found");
     }
 
-    /* Send a simple text response back to the client using the same request context.
+    /* Send a response back to the client using the same request context.
      * This is crucial for completing the HTTP request-response cycle.
      * By default, httpd_resp_send sends a "200 OK" status code, indicating
      * success to the client's fetch API. The content ("Command received")
@@ -837,7 +837,41 @@ static esp_err_t control_get_handler(httpd_req_t *req)
      * that the request was processed successfully. The content is not
      * essential but is useful for debugging/logging purposes.
      **/
-    httpd_resp_send(req, "Command received", HTTPD_RESP_USE_STRLEN);
+    char response_buf[64]; // Buffer for the response message
+
+    /* Check if the 'dir' variable contains a valid command string. */
+    /* strlen(dir) > 0 indicates that httpd_query_key_value successfully extracted 'dir'. */
+    if (strlen(dir) > 0)
+    {
+        /* Check if the command was one of the recognized ones. */
+        if (strcmp(dir, "forward") == 0 || strcmp(dir, "backward") == 0 ||
+            strcmp(dir, "left") == 0 || strcmp(dir, "right") == 0 ||
+            strcmp(dir, "stop") == 0)
+        {
+            /* Format a specific success message including the command. */
+            snprintf(response_buf, sizeof(response_buf), "Command received: %s", dir);
+        }
+        else
+        {
+            /* The 'dir' parameter was present but contained an unknown value. */
+            snprintf(response_buf, sizeof(response_buf), "Unknown command received: %s", dir);
+        }
+    }
+    else
+    {
+        /* 'dir' is empty. This happens if:
+         * 1. No query string was present (query_len <= 1).
+         * 2. Query string was present, but 'dir' parameter was missing.
+         * 3. Memory allocation for 'buf' failed earlier. */
+        strncpy(response_buf, "Command processed or invalid/missing 'dir' parameter", sizeof(response_buf) -1);
+        response_buf[sizeof(response_buf) - 1] = '\0'; /* Ensure null termination */
+    }
+
+    /* Ensure null termination as snprintf might truncate without null-terminating if buffer is exactly full. */
+    response_buf[sizeof(response_buf) - 1] = '\0';
+
+    /* Send the constructed response back to the client */
+    httpd_resp_send(req, response_buf, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
 
