@@ -252,133 +252,129 @@ const char *HTML_PAGE = R"rawliteral(
     }
   </style>
 </head>
+
 <body>
-  <div class="header">
-    <h1>Wave Rover Control</h1>
-    <div class="battery-container">
-      <span>Battery</span>
-      <div class="battery-level"></div>
+    <div class="header">
+        <h1>Wave Rover Control</h1>
+        <div class="battery-container">
+        <span>Battery</span>
+        <div class="battery-level"></div>
+        </div>
     </div>
-  </div>
   
-  <div class="control-panel">
-    <div class="grid-container">
-      <div class="grid-item"></div>
-      <div class="grid-item">
-        <button class="btn" 
-                onmousedown="sendCmd('forward')" 
-                onmouseup="sendCmd('stop')" 
-                ontouchstart="sendCmd('forward')" 
-                ontouchend="sendCmd('stop')">
-          <div class="icon">↑</div>
-          Forward
-        </button>
-      </div>
-      <div class="grid-item"></div>
-      
-      <div class="grid-item">
-        <button class="btn" 
-                onmousedown="sendCmd('left')" 
-                onmouseup="sendCmd('stop')" 
-                ontouchstart="sendCmd('left')" 
-                ontouchend="sendCmd('stop')">
-          <div class="icon">←</div>
-          Left
-        </button>
-      </div>
-      <div class="grid-item">
-        <button class="btn stop" onclick="sendCmd('stop')">
-          <div class="icon">■</div>
-          Stop
-        </button>
-      </div>
-      <div class="grid-item">
-        <button class="btn" 
-                onmousedown="sendCmd('right')" 
-                onmouseup="sendCmd('stop')" 
-                ontouchstart="sendCmd('right')" 
-                ontouchend="sendCmd('stop')">
-          <div class="icon">→</div>
-          Right
-        </button>
-      </div>
-      
-      <div class="grid-item"></div>
-      <div class="grid-item">
-        <button class="btn" 
-                onmousedown="sendCmd('backward')" 
-                onmouseup="sendCmd('stop')" 
-                ontouchstart="sendCmd('backward')" 
-                ontouchend="sendCmd('stop')">
-          <div class="icon">↓</div>
-          Backward
-        </button>
-      </div>
-      <div class="grid-item"></div>
-    </div>
-    
-    <button class="btn ota" onclick="startOta()">Update Firmware</button>
-  </div>
-  
-  <div id="status">Initializing systems...</div>
-  
-  <div class="footer">Wave Rover Control Panel v2.0</div>
+    <div class="control-panel">
+        <div class="grid-container">
+            <div class="grid-item"></div>
+            <div class="grid-item">
+                <button class="btn" style="width: 70px; height: 70px;"
+                                onmousedown="sendCmd('forward')"
+                                onmouseup="sendCmd('stop')"
+                                ontouchstart="sendCmd('forward')"
+                                ontouchend="sendCmd('stop')">
+                    <div class="icon">↑</div>
+                </button>
+            </div>
+            <div class="grid-item"></div>
 
-  <script>
-    function sendCmd(dir) {
-      // Send command to server
-      fetch('/control?dir=' + dir)
-        .then(response => response.text())
-        .then(data => {
-          console.log('Command sent:', dir, 'Response:', data);
-          updateStatus(); // Update status after sending command
-        })
-        .catch(error => {
-          console.error('Error sending command:', error);
-          document.getElementById('status').innerText = 'Communication error: Failed to send command';
-        });
-    }
+            <div class="grid-item">
+                <button class="btn" style="width: 70px; height: 70px;"
+                                onmousedown="sendCmd('left')"
+                                onmouseup="sendCmd('stop')"
+                                ontouchstart="sendCmd('left')"
+                                ontouchend="sendCmd('stop')">
+                    <div class="icon">←</div>
+                </button>
+            </div>
+            <div class="grid-item">
+                <button class="btn stop" style="width: 70px; height: 70px;" onclick="sendCmd('stop')">
+                    <div class="icon">■</div>
+                </button>
+            </div>
+            <div class="grid-item">
+                <button class="btn" style="width: 70px; height: 70px;"
+                                onmousedown="sendCmd('right')"
+                                onmouseup="sendCmd('stop')"
+                                ontouchstart="sendCmd('right')"
+                                ontouchend="sendCmd('stop')">
+                    <div class="icon">→</div>
+                </button>
+            </div>
+
+            <div class="grid-item"></div>
+            <div class="grid-item">
+                <button class="btn" style="width: 70px; height: 70px;"
+                                onmousedown="sendCmd('backward')"
+                                onmouseup="sendCmd('stop')"
+                                ontouchstart="sendCmd('backward')"
+                                ontouchend="sendCmd('stop')">
+                    <div class="icon">↓</div>
+                </button>
+            </div>
+            <div class="grid-item"></div>
+        </div>
     
-    function startOta() {
-      if (confirm('Start Firmware Update? The device will reboot.')) {
-        document.getElementById('status').innerText = 'Initiating firmware update...';
+        <button class="btn ota" onclick="startOta()">Update Firmware</button>
+    </div>
+  
+    <div id="status">Initializing systems...</div>
+  
+    <div class="footer">Wave Rover Control Panel v2.0</div>
+
+    <script>
+        function sendCmd(dir) {
+        // Send command to server
+        fetch('/control?dir=' + dir)
+            .then(response => response.text())
+            .then(data => {
+            console.log('Command sent:', dir, 'Response:', data);
+            updateStatus(); // Update status after sending command
+            })
+            .catch(error => {
+            console.error('Error sending command:', error);
+            document.getElementById('status').innerText = 'Communication error: Failed to send command';
+            });
+        }
         
-        fetch('/ota')
-          .then(response => response.text())
-          .then(data => {
-            console.log('OTA response:', data);
-            document.getElementById('status').innerText = 'OTA update process started. Device will reboot shortly.';
-          })
-          .catch(error => {
-            console.error('Error starting OTA:', error);
-            document.getElementById('status').innerText = 'Failed to start OTA update.';
-          });
-      }
-    }
-    
-    // Function to fetch and update status
-    function updateStatus() {
-      fetch('/print')
-        .then(response => response.text())
-        .then(data => {
-          document.getElementById('status').innerText = data;
-        })
-        .catch(error => {
-          console.error('Error fetching status:', error);
-          document.getElementById('status').innerText = 'Error loading status information';
-        });
-    }
-    
-    // Fetch status periodically
-    function startStatusUpdates() {
-      updateStatus(); // Initial update
-      setInterval(updateStatus, 5000); // Then update every 5 seconds
-    }
-    
-    // Start status updates when page loads
-    window.onload = startStatusUpdates;
+        function startOta() {
+        if (confirm('Start Firmware Update? The device will reboot.')) {
+            document.getElementById('status').innerText = 'Initiating firmware update...';
+            
+            fetch('/ota')
+            .then(response => response.text())
+            .then(data => {
+                console.log('OTA response:', data);
+                document.getElementById('status').innerText = 'OTA update process started. Device will reboot shortly.';
+            })
+            .catch(error => {
+                console.error('Error starting OTA:', error);
+                document.getElementById('status').innerText = 'Failed to start OTA update.';
+            });
+        }
+        }
+        
+        // Function to fetch and update status
+        function updateStatus() {
+        fetch('/print')
+            .then(response => response.text())
+            .then(data => {
+            document.getElementById('status').innerText = data;
+            })
+            .catch(error => {
+            console.error('Error fetching status:', error);
+            document.getElementById('status').innerText = 'Error loading status information';
+            });
+        }
+        
+        // Fetch status periodically
+        function startStatusUpdates() {
+        updateStatus(); // Initial update
+        setInterval(updateStatus, 5000); // Then update every 5 seconds
+        }
+        
+        // Start status updates when page loads
+        window.onload = startStatusUpdates;
 
-  </script>
+    </script>
 </body>
 </html>
 )rawliteral";
