@@ -134,6 +134,15 @@
 /*******************************************************************************/
 
 /**
+ * @brief Set the speed and direction for both motors.
+ *
+ * @param left_motors_pwm PWM duty cycle for the left motor (-255 to 255). Negative values indicate reverse direction.
+ * @param right_motors_pwm PWM duty cycle for the right motor (-255 to 255). Negative values indicate reverse direction.
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t motor_set_speed(int left_motors_pwm, int right_motors_pwm);
+
+/**
  * @brief Controls the left motor's direction and speed.
  *
  * Sets the direction pins (AIN1, AIN2) based on the sign of pwm_val
@@ -322,32 +331,6 @@ esp_err_t motor_init(void)
     return ESP_OK;
 }
 
-esp_err_t motor_set_speed(int left_motors_pwm, int right_motors_pwm) 
-{
-    /* Clamping the PWM values to the range of -LEDC_DUTY_MAX (max reverse) to LEDC_DUTY_MAX (max forward) */
-    if (left_motors_pwm > LEDC_DUTY_MAX) left_motors_pwm = LEDC_DUTY_MAX;
-    if (left_motors_pwm < -LEDC_DUTY_MAX) left_motors_pwm = -LEDC_DUTY_MAX;
-    if (right_motors_pwm > LEDC_DUTY_MAX) right_motors_pwm = LEDC_DUTY_MAX;
-    if (right_motors_pwm < -LEDC_DUTY_MAX) right_motors_pwm = -LEDC_DUTY_MAX;
-
-    /* Set the speed and direction for both motors according to the PWM values */
-    esp_err_t err_a = left_motors_control(left_motors_pwm);
-    esp_err_t err_b = right_motors_control(right_motors_pwm);
-
-    if (err_a != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "Failed to set left motor speed: %s", esp_err_to_name(err_a));
-        return err_a;
-    }
-    if (err_b != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "Failed to set right motor speed: %s", esp_err_to_name(err_b));
-        return err_b;
-    }
-
-    return ESP_OK;
-}
-
 esp_err_t motor_stop(void) 
 {
     if (motor_mutex == NULL) return ESP_ERR_INVALID_STATE;
@@ -501,6 +484,33 @@ esp_err_t motor_turn_right(int pwm)
 /*******************************************************************************/
 /*                     STATIC FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
+
+
+static esp_err_t motor_set_speed(int left_motors_pwm, int right_motors_pwm) 
+{
+    /* Clamping the PWM values to the range of -LEDC_DUTY_MAX (max reverse) to LEDC_DUTY_MAX (max forward) */
+    if (left_motors_pwm > LEDC_DUTY_MAX) left_motors_pwm = LEDC_DUTY_MAX;
+    if (left_motors_pwm < -LEDC_DUTY_MAX) left_motors_pwm = -LEDC_DUTY_MAX;
+    if (right_motors_pwm > LEDC_DUTY_MAX) right_motors_pwm = LEDC_DUTY_MAX;
+    if (right_motors_pwm < -LEDC_DUTY_MAX) right_motors_pwm = -LEDC_DUTY_MAX;
+
+    /* Set the speed and direction for both motors according to the PWM values */
+    esp_err_t err_a = left_motors_control(left_motors_pwm);
+    esp_err_t err_b = right_motors_control(right_motors_pwm);
+
+    if (err_a != ESP_OK) 
+    {
+        ESP_LOGE(TAG, "Failed to set left motor speed: %s", esp_err_to_name(err_a));
+        return err_a;
+    }
+    if (err_b != ESP_OK) 
+    {
+        ESP_LOGE(TAG, "Failed to set right motor speed: %s", esp_err_to_name(err_b));
+        return err_b;
+    }
+
+    return ESP_OK;
+}
 
 static esp_err_t left_motors_control(int pwm_val) 
 {

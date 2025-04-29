@@ -54,15 +54,6 @@
 esp_err_t motor_init(void);
 
 /**
- * @brief Set the speed and direction for both motors.
- *
- * @param left_motors_pwm PWM duty cycle for the left motor (-255 to 255). Negative values indicate reverse direction.
- * @param right_motors_pwm PWM duty cycle for the right motor (-255 to 255). Negative values indicate reverse direction.
- * @return esp_err_t ESP_OK on success, or an error code on failure.
- */
-esp_err_t motor_set_speed(int left_motors_pwm, int right_motors_pwm);
-
-/**
  * @brief Stop both motors immediately.
  *
  * @return esp_err_t ESP_OK on success, or an error code on failure.
