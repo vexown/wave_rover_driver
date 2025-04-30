@@ -536,6 +536,16 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
     } 
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) 
     {
+        /* Immediately stop the motors on disconnection (to prevent leaving them running in a
+         * potentially uncontrolled state when the device is disconnected from WiFi) */
+        if(motor_stop() != ESP_OK) 
+        {
+            ESP_LOGE(TAG, "Failed to stop motors on WiFi disconnection");
+            /* We must stop the motors by all means, so if we didn't manage to stop them
+             * using the stop function, we cause a reset to start in a safe state */
+            esp_restart();
+        }
+
         /* Clear connected bit on disconnect */
         if (WiFi_EventGroup != NULL) 
         {
