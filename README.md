@@ -1,11 +1,10 @@
 # WAVE ROVER driver
-
-This project, WAVE ROVER driver, is based on the [ugv_base_general](https://github.com/waveshareteam/ugv_base_general) repository by waveshareteam.
-
-This project is licensed under the GNU General Public License v3.0, as is the original `ugv_base_general` project. See license information at the end of this readme.
+WAVE ROVER driver project, is based on the [ugv_base_general](https://github.com/waveshareteam/ugv_base_general) repository by waveshareteam.
 
 # WHAT IS THE WAVE ROVER?
-See the Waveshare wiki for the description of the Wave Rover - https://www.waveshare.com/wiki/WAVE_ROVER
+In short, Wave Rover is a Mobile Robot. It runs on 4 wheel drive, features both lower level board (ESP32) for fundemental rover control as well as higher level upper board (e.g Raspberry Pi) for things like cameras, AI processing and stuff like that. It runs on some LiPo cells with BMS and charging control board "UPS Module"(also from Waveshare). Great thing about this platform is that everything is open source, you can modify it as much as you want.
+
+See the Waveshare wiki for a more in-depth description of the Wave Rover - https://www.waveshare.com/wiki/WAVE_ROVER
 
 ## Basic Description
 The Waveshare UGV robots utilize both an upper computer and a lower computer. This repository contains the program running on the lower computer, which is typically a ESP32 with **General Driver for Robots**
@@ -22,58 +21,19 @@ The program running on the lower computer is either named [ugv_base_ros](https:/
 
 The upper computer communicates with the lower computer (the robot's driver based on ESP32) by sending JSON commands via GPIO UART. The host controller, which employs a [Jetson Orin](https://github.com/waveshareteam/ugv_jetson) or a [Raspberry Pi](https://github.com/waveshareteam/ugv_rpi) based on the type of upper computer being used, handles AI vision and strategy planning, while the sub-controller, utilizing an ESP32, manages motion control and sensor data processing. This setup ensures efficient collaboration and enhanced performance.
 
-## Features
-- Closed-loop Speed Control with PID
-- Web App Based on ESP32
-- IMU
-- OLED Screen
-- LED Lights(12V switches) Control
-- Control via JSON Commands
-- Supports Camera PT
-- Supports RoArm-M2
-- Control and Communicate via ESP-NOW
-
 ## Configure and build the firmware
 
-### Arudino setup
+So origially the Waveshare team provided the firmware for the Lower Computer (ESP32) as an Arduino program.
+However, I prefer having more control over the code and therefore I ported the code to ESP-IDF framework.
+I mostly reworked the basic functionality to work in ESP-IDF and then started adding my own stuff, ditching the Arduino completely.
 
-Guide based on https://www.waveshare.com/wiki/How_To_Install_Arduino_IDE
+I like having scripts for everything. So to build, you just need to run the ./Build script.
 
-1. Install **[Arduino IDE](https://www.arduino.cc/en/software)** 
-
-2. In Arduino IDE go to File->Preferences and add the following link in the "Additional boards manager URLs": https://dl.espressif.com/dl/package_esp32_index.json
-
-3. Download ESP32 development package from Waveshare: https://files.waveshare.com/wiki/RoArm-M2-S/esp32-2.0.11.zip and unzip it in:
-   Windows: `C:\Users\[username]\AppData\Local\Arduino15\packages\`
-   Linux: `~\.arudino15\packages\`
-
-(you should end up with a new `esp32` folder in the `packages` directory)
-
-4. Download required libraries from Waveshare: https://files.waveshare.com/upload/a/ae/General-Libraries.zip and unzip all of them to the `libraries` folder in your Sketchbook location (check File->Preferences in Arduino IDE to find it).
-
-**Note, there is a few missing libraries/dependencies in this package which you need to install/update via the Arduino Library Manager**
-Here is the list:
-- ArduinoJson
-- Adafruit_SSD1306
-- ESP32Encoder
-
-(you should end up with bunch of new library folders in the `libraries` directory)
-
-4. Open the **WaveRoverDriver.ino** file in Arduino to load the project into the workspace
-
-5. Select the ESP32 Dev Module as the Board: Tools->Board->Search for esp32 in the Board Manager and Install it->Go back to Tools->Board and Select the **ESP32 Dev Module** under the esp32 family
-
-6. Connect the driver board to the PC via the USB-C port that is in the middle of the board (there is 2).
-
-7. Select the newly appeared COM port in Arduino: Tools->Port
-
-8. Verify & Upload (Flash) the new firmware
-
-
-### Basic Use
-See the Wiki: https://www.waveshare.com/wiki/WAVE_ROVER
+It should take care of all dependencies, including apt packages and esp-idf itself. Hopefully it doesnt just "work on my machine".
 
 ## License
+This project is licensed under the GNU General Public License v3.0, as is the original `ugv_base_general` project
+
 ugv_base_general for the Waveshare UGV Robots: an open source robotics platform for the Robots based on **General Driver**.
 Copyright (C) 2024 [Waveshare](https://www.waveshare.com/)
 
