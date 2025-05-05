@@ -96,6 +96,7 @@ void app_main(void)
     /* Task loop */
     while(1) 
     {
+        printf("app_main(), just hanging around...\n");
         vTaskDelay(pdMS_TO_TICKS(1000)); // Move into the blocked state allowing other tasks to run
     }
 }
