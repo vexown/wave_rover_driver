@@ -21,6 +21,24 @@ The program running on the lower computer is either named [ugv_base_ros](https:/
 
 The upper computer communicates with the lower computer (the robot's driver based on ESP32) by sending JSON commands via GPIO UART. The host controller, which employs a [Jetson Orin](https://github.com/waveshareteam/ugv_jetson) or a [Raspberry Pi](https://github.com/waveshareteam/ugv_rpi) based on the type of upper computer being used, handles AI vision and strategy planning, while the sub-controller, utilizing an ESP32, manages motion control and sensor data processing. This setup ensures efficient collaboration and enhanced performance.
 
+### Communication between UPPER Computer (Raspberry Pi) and LOWER Computer (ESP32)
+
+It can be done in many ways but one of the simplest methods is to use UART communication.
+When the Pi is inserted directly into the 40-pin GPIO socket (upside down) available on the Lower Computer board it can communicate with ESP32
+via pins:
+ESP32UE: U0TX (PIN 35, GPIO 1) <-----> Pi: P_RX (PIN 10, GPIO15, UART RX)
+ESP32UE: U0RX (PIN 34, GPIO 3) <-----> Pi: P_TX (PIN 8, GPIO 14, UART TX)
+
+Pin numbers taken directly from schematic: 
+https://files.waveshare.com/upload/3/37/General_Driver_for_Robots.pdf (REMEMBER THAT PI IS UPSIDE DOWN)
+
+Also for reference Raspberry Pi 4B pinout data:
+https://i0.wp.com/randomnerdtutorials.com/wp-content/uploads/2023/03/Raspberry-Pi-Pinout-Random-Nerd-Tutorials.png?quality=100&strip=all&ssl=1
+
+And ESP32UE datasheet:
+https://www.espressif.com/sites/default/files/documentation/esp32-wroom-32e_esp32-wroom-32ue_datasheet_en.pdf
+
+
 ## Configure and build the firmware
 
 So origially the Waveshare team provided the firmware for the Lower Computer (ESP32) as an Arduino program.
