@@ -9,7 +9,8 @@
 #include "esp_chip_info.h"
 #include "esp_flash.h"
 #include "esp_system.h"
-#include "esp_log.h" 
+#include "esp_log.h"
+#include <esp_wifi.h>
 #include "Common.h"
 #include "motor_control.h"
 #include "oled_display.h"
@@ -18,7 +19,7 @@
 /*******************************************************************************/
 /*                                 MACROS                                      */
 /*******************************************************************************/
-#define FW_VERSION "01.05" // Firmware version (MAJOR.MINOR)
+#define FW_VERSION "01.07" // Firmware version (MAJOR.MINOR)
 
 /*******************************************************************************/
 /*                               DATA TYPES                                    */
@@ -185,6 +186,10 @@ static void print_system_info(void)
 
     LOG("Minimum free heap size: %" PRIu32 " bytes\n", esp_get_minimum_free_heap_size());
 
+    uint8_t mac_addr[6];
+    (void)esp_wifi_get_mac(ESP_IF_WIFI_STA, mac_addr); // Get the MAC address of the station interface (for ESP-NOW)
+    ESP_LOGI("MAC_INFO", "My MAC Address is: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+
     if (oled_err == ESP_OK)
     {
         /* Display welcome message and initial status on OLED */
@@ -233,13 +238,15 @@ static void print_system_info(void)
             "Chip: %s\n"
             "Cores: %d\n"
             "Sillicon Revision: %d.%d\n"
-            "Flash: %" PRIu32 "MB %s",
+            "Flash: %" PRIu32 "MB %s\n"
+            "MAC: %02X:%02X:%02X:%02X:%02X:%02X",
             FW_VERSION,
             CONFIG_IDF_TARGET,
             chip_info.cores,
             major_rev, minor_rev, // Use calculated revisions
             flash_size / (1024 * 1024),
-            (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
+            (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external",
+            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
 
     /* Print the welcome message on the web server */
     web_server_print(info_buffer);
