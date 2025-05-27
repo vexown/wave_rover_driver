@@ -58,7 +58,7 @@
 
 /* OTA HTTPS server URL to the firmware binary. For the firmware binary to be
  * placed there, use UploadImageToServer.sh script. (build the firmware first) */
-#define FIRMWARE_UPGRADE_URL "https://192.168.1.194/firmware_wave_rover_driver.bin"
+#define FIRMWARE_UPGRADE_URL "https://192.168.50.194/firmware_wave_rover_driver.bin"
 
 /* Motor control parameters */
 #define MOTOR_CONTROL_PWM 255 //TODO - make this configurable on the web page?
