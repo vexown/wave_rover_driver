@@ -86,8 +86,8 @@
 extern esp_err_t oled_err;
 
 /* External symbol declarations for the OTA server certificate */
-extern const uint8_t server_cert_pem_start[] asm("_binary_apache_selfsigned_crt_start");
-extern const uint8_t server_cert_pem_end[]   asm("_binary_apache_selfsigned_crt_end");
+extern const uint8_t server_cert_pem_start[] asm("_binary_apache_ip_cert_crt_start");
+extern const uint8_t server_cert_pem_end[]   asm("_binary_apache_ip_cert_crt_end");
 
 /*******************************************************************************/
 /*                     GLOBAL VARIABLES DEFINITIONS                            */

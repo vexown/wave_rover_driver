@@ -5,4 +5,4 @@ idf_component_register(
 )
 
 # Embed the certificate file
-target_add_binary_data(${COMPONENT_TARGET} "certs/apache-selfsigned.crt" TEXT EMBED_IN_RODATA)
+target_add_binary_data(${COMPONENT_TARGET} "certs/apache_ip_cert.crt" TEXT EMBED_IN_RODATA)
