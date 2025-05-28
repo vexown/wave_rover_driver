@@ -195,7 +195,9 @@ static void print_system_info(void)
         /* Display welcome message and initial status on OLED */
         oled_clear_buffer();
         oled_write_string(0, "WAVE ROVER");      // Line 0
-        oled_write_string(1, FW_VERSION);        // Line 1
+        char version_str[32];
+        snprintf(version_str, sizeof(version_str), "version: %s", FW_VERSION);
+        oled_write_string(1, version_str);        // Line 1
 
         /* Get the current IP address and WiFi connection status */
         char ip_addr_str[16];
