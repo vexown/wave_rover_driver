@@ -24,7 +24,8 @@ idf_component_register(SRCS "app_main.c"
                                 Common
                                 motor_control
                                 oled_display
-                                web_server    
+                                web_server
+                                NaviLogging   
                       )
 
 
