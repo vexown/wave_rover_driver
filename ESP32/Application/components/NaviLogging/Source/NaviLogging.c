@@ -15,6 +15,7 @@
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h" // Added for mutex
 #include "esp_now.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
@@ -31,6 +32,11 @@
 #define TAG "NAVILOGGING"
 
 #define NAVILOGGING_RECEIVE_TIMEOUT_MS 10000 // Timeout for new data (10 seconds)
+
+/* Task configuration for the NaviLogging component */
+#define NAVILOGGING_TASK_STACK_SIZE 4096
+#define NAVILOGGING_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
+#define NAVILOGGING_TASK_PERIOD_TICKS pdMS_TO_TICKS(1000)
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
@@ -70,6 +76,16 @@
  */
 static void esp_now_receive_callback(const esp_now_recv_info_t *recv_info, const uint8_t *data, int data_len);
 
+/**
+ * @brief Task for processing received navigation coordinates.
+ * 
+ * Check for new data and process it.
+ * Currently it just retrieves the last received coordinates and logs them.
+ * 
+ * @param xTaskParameter Pointer to task parameters (not used in this case).
+ */
+static void navi_coordinates_processing_task(void *xTaskParameter);
+
 /*******************************************************************************/
 /*                             STATIC VARIABLES                                */
 /*******************************************************************************/
@@ -78,6 +94,17 @@ static navi_coordinates_type last_coordinates = {0.0, 0.0, 0.0};
 
 /* Flag to signal if new data is available */
 static bool new_data_available = false;
+
+/* Mutex for protecting access to last_coordinates and new_data_available */
+static SemaphoreHandle_t coords_access_mutex = NULL;
+
+/* Broadcast address for ESP-NOW.
+ * 
+ * This address is used to send data to all devices in range (or to receive data from all devices).
+ * It is a special address that allows communication with any ESP-NOW device
+ * without needing to know its specific MAC address.
+ */
+static const uint8_t broadcast_addr[ESP_NOW_ETH_ALEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 /**
  * MAC address of the ESP-NOW peer device.
@@ -102,7 +129,7 @@ static bool new_data_available = false;
  * which allows receiving data from all ESP-NOW devices in range.
  * For unicast (one-to-one) communication, replace it with the specific MAC address of the sender.
  */
-static uint8_t sender_mac[ESP_NOW_ETH_ALEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // Broadcast - receive from any device
+static uint8_t sender_mac[ESP_NOW_ETH_ALEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
@@ -114,6 +141,15 @@ esp_err_t NaviLogging_init(void)
 
     snprintf(print_buffer, sizeof(print_buffer), "Initializing NaviLogging component for receiving data");
     web_server_print(print_buffer);
+
+    /* Create mutex for critical sections */
+    coords_access_mutex = xSemaphoreCreateMutex();
+    if (coords_access_mutex == NULL)
+    {
+        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging: Failed to create coords_access_mutex");
+        web_server_print(print_buffer);
+        return ESP_FAIL; // Or handle error appropriately
+    }
 
     /* Initialize ESP-NOW. This function is not open-source so we don't really know the details of what it does but yea */
     esp_err_t ret = esp_now_init();
@@ -201,6 +237,17 @@ esp_err_t NaviLogging_init(void)
         ESP_ERROR_CHECK(ret);
     }
 
+    /* Start a task for periodically checking for new data and processing it. */
+    /* This could be done in the callback, but it's best to keep callbacks short and simple and 
+       handle more complex logic in a separate task to avoid blocking the ESP-NOW receive callback. */
+    BaseType_t status_task = xTaskCreate(navi_coordinates_processing_task, "navi_coordinates_processing_task", 
+                                         NAVILOGGING_TASK_STACK_SIZE, NULL, NAVILOGGING_TASK_PRIORITY, NULL);
+    if (status_task != pdPASS) 
+    {
+        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging: Failed to create navi_coordinates_processing_task");
+        web_server_print(print_buffer);
+    }
+
     snprintf(print_buffer, sizeof(print_buffer), "NaviLogging initialized successfully for receiving data from any ESP-NOW device");
     web_server_print(print_buffer);
     return ESP_OK;
@@ -218,32 +265,45 @@ esp_err_t NaviLogging_get_last_coordinates(navi_coordinates_type *coordinates)
         return ESP_ERR_INVALID_ARG;
     }
 
-    /* Copy the last received coordinates to the provided pointer */
-    *coordinates = last_coordinates;
+    if (xSemaphoreTake(coords_access_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        /* Copy the last received coordinates to the provided pointer */
+        *coordinates = last_coordinates;
 
-    /* Mark the coordinates as retrieved (not new anymore) */
-    new_data_available = false;
-    
-    snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Info: Retrieved coordinates: lat=%.6f, lon=%.6f, alt=%.2f",
-             coordinates->latitude, coordinates->longitude, coordinates->altitude);
-    web_server_print(print_buffer);
-    
-    return ESP_OK;
+        /* Mark the coordinates as retrieved (not new anymore) */
+        new_data_available = false;
+        
+        xSemaphoreGive(coords_access_mutex);
+
+        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Info: Retrieved coordinates: lat=%.6f, lon=%.6f, alt=%.2f",
+                 coordinates->latitude, coordinates->longitude, coordinates->altitude);
+        web_server_print(print_buffer);
+        
+        return ESP_OK;
+    }
+    else
+    {
+        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Error: Failed to take mutex in NaviLogging_get_last_coordinates");
+        web_server_print(print_buffer);
+        return ESP_FAIL; // Or handle error appropriately
+    }
 }
 
 bool NaviLogging_is_new_data_available(void)
 {
-    /* Let the user know if new data is available or the last data was already retrieved */
-    if (new_data_available) 
+    bool status;
+    if (xSemaphoreTake(coords_access_mutex, portMAX_DELAY) == pdTRUE)
     {
-        web_server_print("NaviLogging Info: New data is available");
-    } 
-    else 
-    {
-        web_server_print("NaviLogging Info: No new data available");
+        status = new_data_available;
+        xSemaphoreGive(coords_access_mutex);
     }
-
-    return new_data_available;
+    else
+    {
+        // Log error or handle mutex take failure
+        ESP_LOGE(TAG, "Failed to take mutex in NaviLogging_is_new_data_available");
+        status = false; // Default to false in case of error
+    }
+    return status;
 }
 
 /*******************************************************************************/
@@ -254,8 +314,6 @@ static void esp_now_receive_callback(const esp_now_recv_info_t *recv_info, const
 {
     char print_buffer[256]; // Buffer for web_server_print
 
-    web_server_print("NaviLogging: ESP-NOW data received");
-
     /* Check if the packet info exists and has a valid source address */
     if (recv_info == NULL || recv_info->src_addr == NULL) 
     {
@@ -264,11 +322,20 @@ static void esp_now_receive_callback(const esp_now_recv_info_t *recv_info, const
         return;
     }
 
-    /* Now that we know packet info is valid, check out who sent us this data */
+    /* Now that we know packet info is valid, check if the device that sent the data is the one we expect */
     const uint8_t *mac_addr = recv_info->src_addr;
-    snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Info: ESP-NOW data received from %02X:%02X:%02X:%02X:%02X:%02X, length: %d",
-             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5], data_len);
-    web_server_print(print_buffer);
+
+    /* Accept data only from the expected sender (the Navigation ESP32 device) */
+    if ((memcmp(sender_mac, broadcast_addr, ESP_NOW_ETH_ALEN) != 0 ) && /* Check if we are accepting data from all devices (broadcast) */
+        (memcmp(mac_addr, sender_mac, ESP_NOW_ETH_ALEN) != 0)) /* If not, check if the MAC address matches the expected sender's MAC address */
+    {
+        /* If neither condition is true, we received data from an unexpected source.
+           This could be a misconfiguration or an attempt to send data from an unauthorized device. */
+        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Warning: Received data from unexpected MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
+                 mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+        web_server_print(print_buffer);
+        return; // Ignore data from unexpected sources
+    }
 
     /* Check if the received data length matches the expected size. If it doesn't, we might be receving corrupted data or simply not the data we expect */
     if (data_len != sizeof(navi_coordinates_type)) 
@@ -279,17 +346,57 @@ static void esp_now_receive_callback(const esp_now_recv_info_t *recv_info, const
         return;
     }
 
-    // Accept data from any ESP-NOW device (no MAC filtering for broadcast mode)
-    // if (memcmp(mac_addr, sender_mac, ESP_NOW_ETH_ALEN) != 0) {
-    //     snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Warning: Received data from unknown sender, ignoring");
-    //     web_server_print(print_buffer);
-    //     return;
-    // }
+    if (xSemaphoreTake(coords_access_mutex, (TickType_t)0) == pdTRUE) // Try to take mutex without blocking
+    {
+        /* Deserialize the received data into the last_coordinates structure. This can be later retrieved by the user via NaviLogging_get_last_coordinates() */
+        memcpy(&last_coordinates, data, sizeof(navi_coordinates_type));
+        
+        /* Indicate that new data is available. This flag can be checked by the user via NaviLogging_is_new_data_available() 
+           to avoid wasting time on retrieving data that is not new */
+        new_data_available = true;
 
-    /* Deserialize the received data into the last_coordinates structure. This can be later retrieved by the user via NaviLogging_get_last_coordinates() */
-    memcpy(&last_coordinates, data, sizeof(navi_coordinates_type));
-    
-    /* Indicate that new data is available. This flag can be checked by the user via NaviLogging_is_new_data_available() 
-       to avoid wasting time on retrieving data that is not new */
-    new_data_available = true;
+        xSemaphoreGive(coords_access_mutex);
+    }
+    else
+    {
+        // Failed to take mutex, data might be lost or delayed. Log this.
+        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Warning: Failed to take mutex in esp_now_receive_callback. Data might be dropped.");
+        web_server_print(print_buffer);
+    }
+}
+
+static void navi_coordinates_processing_task(void *xTaskParameter)
+{
+    /******************** Task Initialization ********************/
+    char print_buffer[256]; // Buffer for web_server_print
+
+    /************************* Task Loop *************************/
+    while (1) 
+    {
+        /* Check if new data is available */
+        if (NaviLogging_is_new_data_available()) 
+        {
+            /* Log the last coordinates */
+            /* We could get the coordinates directly from the last_coordinates variable, but just for the 
+               sake of consistency, we will use the NaviLogging_get_last_coordinates() function */
+            navi_coordinates_type coordinates;
+            esp_err_t err = NaviLogging_get_last_coordinates(&coordinates);
+            if (err == ESP_OK) 
+            {
+                snprintf(print_buffer, sizeof(print_buffer),
+                         "NaviLogging Task: New coordinates received - lat=%.6f, lon=%.6f, alt=%.2f",
+                         coordinates.latitude, coordinates.longitude, coordinates.altitude);
+                web_server_print(print_buffer);
+            } 
+            else 
+            {
+                snprintf(print_buffer, sizeof(print_buffer),
+                         "NaviLogging Task: Failed to get new coordinates - this should never happen (only error condition is if the pointer is NULL)");
+                web_server_print(print_buffer);
+            }
+        } 
+
+        /* Delay for a while before checking again */
+        vTaskDelay(NAVILOGGING_TASK_PERIOD_TICKS);
+    }
 }

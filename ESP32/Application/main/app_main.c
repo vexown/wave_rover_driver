@@ -98,39 +98,7 @@ void app_main(void)
     /* Task loop */
     while(1) 
     {
-        /*****************************************************************************/
-        /* TODO - move logging of the navigation data to a separate task, this is for testing */
-        /*****************************************************************************/
-        /* Variables to hold the last coordinates */
-        navi_coordinates_type last_coordinates = {0.0, 0.0, 0.0};
-        char web_server_msg_buffer[256]; // Buffer for web server messages
-
         printf("app_main(), just hanging around...\n");
-
-        /* Check if new data is available from NaviLogging */
-        if (NaviLogging_is_new_data_available())
-        {
-            /* Get the last coordinates */
-            esp_err_t err = NaviLogging_get_last_coordinates(&last_coordinates);
-            if (err == ESP_OK)
-            {
-                snprintf(web_server_msg_buffer, sizeof(web_server_msg_buffer),
-                    "Received coordinates: lat=%.6f, lon=%.6f, alt=%.2f",
-                    last_coordinates.latitude, last_coordinates.longitude, last_coordinates.altitude);
-                web_server_print(web_server_msg_buffer);
-            }
-            else
-            {
-                snprintf(web_server_msg_buffer, sizeof(web_server_msg_buffer),
-                    "Failed to get coordinates: %s", esp_err_to_name(err));
-                web_server_print(web_server_msg_buffer);
-            }
-        }
-        else
-        {
-            web_server_print("No new data available from NaviLogging.");
-        }
-        /*****************************************************************************/
 
         vTaskDelay(pdMS_TO_TICKS(2000)); // Move into the blocked state allowing other tasks to run
     }
