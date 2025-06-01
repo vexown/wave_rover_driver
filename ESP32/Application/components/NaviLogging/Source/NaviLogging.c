@@ -129,7 +129,7 @@ static const uint8_t broadcast_addr[ESP_NOW_ETH_ALEN] = {0xFF, 0xFF, 0xFF, 0xFF,
  * which allows receiving data from all ESP-NOW devices in range.
  * For unicast (one-to-one) communication, replace it with the specific MAC address of the sender.
  */
-static uint8_t sender_mac[ESP_NOW_ETH_ALEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+static uint8_t sender_mac[ESP_NOW_ETH_ALEN] = {0xC8, 0xF0, 0x9E, 0xA2, 0x47, 0x1C}; // MAC address of the Navigation App ESP32 device
 
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
