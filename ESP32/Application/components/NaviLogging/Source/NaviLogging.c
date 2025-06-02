@@ -386,7 +386,9 @@ static void navi_coordinates_processing_task(void *xTaskParameter)
                 snprintf(print_buffer, sizeof(print_buffer),
                          "NaviLogging Task: New coordinates received - lat=%.6f, lon=%.6f, alt=%.2f",
                          coordinates.latitude, coordinates.longitude, coordinates.altitude);
-                web_server_print(print_buffer);
+                web_server_print(print_buffer); //TODO: Send this data to the Raspberry Pi instead of web server 
+                printf("NaviLogging Task: New coordinates received - lat=%.6f, lon=%.6f, alt=%.2f\n",
+                       coordinates.latitude, coordinates.longitude, coordinates.altitude); //TODO - Receive this data via UART on the PI 
             } 
             else 
             {
