@@ -93,12 +93,12 @@ void app_main(void)
     /* Print system information to the console, OLED, and web server */
     print_system_info();
 
-    LOG("Entering idle loop. Connect to WiFi and control via web server.");
+    LOG_TO_RPI("Entering idle loop. Connect to WiFi and control via web server.");
 
     /* Task loop */
     while(1) 
     {
-        printf("app_main(), just hanging around...\n");
+        LOG_TO_RPI("app_main(), just hanging around...\n");
 
         vTaskDelay(pdMS_TO_TICKS(2000)); // Move into the blocked state allowing other tasks to run
     }
@@ -112,52 +112,52 @@ void app_main(void)
 static void init_components(void)
 {
     /******************************* Motor Control *******************************/
-    LOG("Initializing Motor Control...");
+    LOG_TO_RPI("Initializing Motor Control...");
     esp_err_t motor_err = motor_init();
     if (motor_err != ESP_OK)
     {
-        LOG("Motor initialization failed: %s", esp_err_to_name(motor_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
+        LOG_TO_RPI("Motor initialization failed: %s", esp_err_to_name(motor_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
     }
     else
     {
-        LOG("Motor Control Initialized.");
+        LOG_TO_RPI("Motor Control Initialized.");
     }
 
     /******************************* OLED Display *******************************/
-    LOG("Initializing OLED Display...");
+    LOG_TO_RPI("Initializing OLED Display...");
     // oled_err is global, so it's updated directly
     oled_err = oled_init();
     if (oled_err != ESP_OK)
     {
-        LOG("OLED initialization failed: %s", esp_err_to_name(oled_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
+        LOG_TO_RPI("OLED initialization failed: %s", esp_err_to_name(oled_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
     }
     else
     {
-        LOG("OLED Display Initialized.");
+        LOG_TO_RPI("OLED Display Initialized.");
     }
 
     /******************************* Web Server *******************************/
-    LOG("Initializing Web Server...");
+    LOG_TO_RPI("Initializing Web Server...");
     esp_err_t web_err = web_server_init();
     if (web_err != ESP_OK)
     {
-        LOG("Web Server initialization failed: %s", esp_err_to_name(web_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
+        LOG_TO_RPI("Web Server initialization failed: %s", esp_err_to_name(web_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
     }
     else
     {
-        LOG("Web Server Initialized.");
+        LOG_TO_RPI("Web Server Initialized.");
     }
 
     /******************************* NaviLogging *******************************/
-    LOG("Initializing NaviLogging (ESP-NOW receiver)...");
+    LOG_TO_RPI("Initializing NaviLogging (ESP-NOW receiver)...");
     esp_err_t navi_err = NaviLogging_init();
     if (navi_err != ESP_OK)
     {
-        LOG("NaviLogging initialization failed: %s", esp_err_to_name(navi_err)); // Log the error but continue execution
+        LOG_TO_RPI("NaviLogging initialization failed: %s", esp_err_to_name(navi_err)); // Log the error but continue execution
     }
     else
     {
-        LOG("NaviLogging Initialized.");
+        LOG_TO_RPI("NaviLogging Initialized.");
     }
 }
 
@@ -169,13 +169,13 @@ static void print_system_info(void)
     esp_chip_info_t chip_info;
     uint32_t flash_size;
 
-    LOG("Welcome to Moduri Application!\n");
+    LOG_TO_RPI("Welcome to Moduri Application!\n");
 
     /* Get chip information */
     esp_chip_info(&chip_info);
 
     /* Print chip information */
-    LOG("This is %s chip with %d CPU core(s), %s%s%s%s, ",
+    LOG_TO_RPI("This is %s chip with %d CPU core(s), %s%s%s%s, ",
             CONFIG_IDF_TARGET,
             chip_info.cores,
             (chip_info.features & CHIP_FEATURE_WIFI_BGN) ? "WiFi/" : "",
@@ -185,20 +185,20 @@ static void print_system_info(void)
 
     unsigned major_rev = chip_info.revision / 100;
     unsigned minor_rev = chip_info.revision % 100;
-    LOG("silicon revision v%d.%d, ", major_rev, minor_rev);
+    LOG_TO_RPI("silicon revision v%d.%d, ", major_rev, minor_rev);
 
     /* Get flash size */
     if(esp_flash_get_size(NULL, &flash_size) != ESP_OK)
     {
-        LOG("Get flash size failed");
+        LOG_TO_RPI("Get flash size failed");
         /* Consider how to handle this error more robustly if needed */
         flash_size = 0; // Set a default value or handle differently
     }
 
     /* Print flash size */
-    LOG("%" PRIu32 "MB %s flash\n", flash_size / (uint32_t)(1024 * 1024), (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
+    LOG_TO_RPI("%" PRIu32 "MB %s flash\n", flash_size / (uint32_t)(1024 * 1024), (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 
-    LOG("Minimum free heap size: %" PRIu32 " bytes\n", esp_get_minimum_free_heap_size());
+    LOG_TO_RPI("Minimum free heap size: %" PRIu32 " bytes\n", esp_get_minimum_free_heap_size());
 
     uint8_t mac_addr[6];
     (void)esp_wifi_get_mac(ESP_IF_WIFI_STA, mac_addr); // Get the MAC address of the station interface (for ESP-NOW)
@@ -238,7 +238,7 @@ static void print_system_info(void)
         esp_err_t refresh_err = oled_refresh();
         if (refresh_err != ESP_OK)
         {
-            LOG("OLED refresh failed: %s", esp_err_to_name(refresh_err)); // Log the error but continue execution
+            LOG_TO_RPI("OLED refresh failed: %s", esp_err_to_name(refresh_err)); // Log the error but continue execution
         }
     }
 

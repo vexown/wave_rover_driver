@@ -21,6 +21,7 @@
 #include "esp_log.h"
 #include "string.h"
 #include "web_server.h"
+#include "Common.h"
 
 /* Project Includes */
 #include "NaviLogging.h"
@@ -387,8 +388,8 @@ static void navi_coordinates_processing_task(void *xTaskParameter)
                          "NaviLogging Task: New coordinates received - lat=%.6f, lon=%.6f, alt=%.2f",
                          coordinates.latitude, coordinates.longitude, coordinates.altitude);
                 web_server_print(print_buffer); //TODO: Send this data to the Raspberry Pi instead of web server 
-                printf("NaviLogging Task: New coordinates received - lat=%.6f, lon=%.6f, alt=%.2f\n",
-                       coordinates.latitude, coordinates.longitude, coordinates.altitude); //TODO - Receive this data via UART on the PI 
+                LOG_TO_RPI("NaviLogging Task: New coordinates received - lat=%.6f, lon=%.6f, alt=%.2f\n",
+                       coordinates.latitude, coordinates.longitude, coordinates.altitude);
             } 
             else 
             {
