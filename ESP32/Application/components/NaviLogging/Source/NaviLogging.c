@@ -138,17 +138,11 @@ static uint8_t sender_mac[ESP_NOW_ETH_ALEN] = {0xC8, 0xF0, 0x9E, 0xA2, 0x47, 0x1
 
 esp_err_t NaviLogging_init(void)
 {
-    char print_buffer[256]; // Buffer for web_server_print
-
-    snprintf(print_buffer, sizeof(print_buffer), "Initializing NaviLogging component for receiving data");
-    web_server_print(print_buffer);
-
     /* Create mutex for critical sections */
     coords_access_mutex = xSemaphoreCreateMutex();
     if (coords_access_mutex == NULL)
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging: Failed to create coords_access_mutex");
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging: Failed to create mutex for coordinates access");
         return ESP_FAIL; // Or handle error appropriately
     }
 
@@ -156,8 +150,7 @@ esp_err_t NaviLogging_init(void)
     esp_err_t ret = esp_now_init();
     if (ret != ESP_OK) 
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging: esp_now_init failed: %s", esp_err_to_name(ret));
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging: esp_now_init failed: %s", esp_err_to_name(ret));
         ESP_ERROR_CHECK(ret); // This will halt if ret is not ESP_OK
     }
 
@@ -167,8 +160,7 @@ esp_err_t NaviLogging_init(void)
     ret = esp_now_register_recv_cb(esp_now_receive_callback);
     if (ret != ESP_OK) 
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging: esp_now_register_recv_cb failed: %s", esp_err_to_name(ret));
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging: esp_now_register_recv_cb failed: %s", esp_err_to_name(ret));
         ESP_ERROR_CHECK(ret);
     }
 
@@ -179,12 +171,11 @@ esp_err_t NaviLogging_init(void)
     wifi_second_chan_t second_channel;
     if (esp_wifi_get_channel(&primary_channel, &second_channel) == ESP_OK) 
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging: Current Wi-Fi Primary Channel: %d", primary_channel);
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging: Current Wi-Fi channel: %d, Second channel: %d", primary_channel, second_channel);
     } 
     else 
     {
-        web_server_print("NaviLogging: Failed to get Wi-Fi channel");
+        LOG_TO_RPI("NaviLogging: Failed to get current Wi-Fi channel");
     }
 
     /* Configure the ESP-NOW peer information. This is where we set up the peer device that we want to receive data from. */
@@ -233,8 +224,7 @@ esp_err_t NaviLogging_init(void)
     ret = esp_now_add_peer(&peer_info);
     if (ret != ESP_OK) 
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging: esp_now_add_peer failed: %s", esp_err_to_name(ret));
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging: esp_now_add_peer failed: %s", esp_err_to_name(ret));
         ESP_ERROR_CHECK(ret);
     }
 
@@ -245,24 +235,19 @@ esp_err_t NaviLogging_init(void)
                                          NAVILOGGING_TASK_STACK_SIZE, NULL, NAVILOGGING_TASK_PRIORITY, NULL);
     if (status_task != pdPASS) 
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging: Failed to create navi_coordinates_processing_task");
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging: Failed to create navi_coordinates_processing_task");
     }
 
-    snprintf(print_buffer, sizeof(print_buffer), "NaviLogging initialized successfully for receiving data from any ESP-NOW device");
-    web_server_print(print_buffer);
+    LOG_TO_RPI("NaviLogging: Initialized successfully. Waiting for data...");
     return ESP_OK;
 }
 
 esp_err_t NaviLogging_get_last_coordinates(navi_coordinates_type *coordinates)
 {
-    char print_buffer[256]; // Buffer for web_server_print
-
     /* Check if valid pointer is provided */
     if (coordinates == NULL) 
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Error: Coordinates pointer is NULL");
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging Error: NULL pointer provided to NaviLogging_get_last_coordinates");
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -274,18 +259,14 @@ esp_err_t NaviLogging_get_last_coordinates(navi_coordinates_type *coordinates)
         /* Mark the coordinates as retrieved (not new anymore) */
         new_data_available = false;
         
+        /* Give back the mutex to allow other tasks to access the coordinates */
         xSemaphoreGive(coords_access_mutex);
-
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Info: Retrieved coordinates: lat=%.6f, lon=%.6f, alt=%.2f",
-                 coordinates->latitude, coordinates->longitude, coordinates->altitude);
-        web_server_print(print_buffer);
         
         return ESP_OK;
     }
     else
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Error: Failed to take mutex in NaviLogging_get_last_coordinates");
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging Error: Failed to take mutex in NaviLogging_get_last_coordinates");
         return ESP_FAIL; // Or handle error appropriately
     }
 }
@@ -313,13 +294,10 @@ bool NaviLogging_is_new_data_available(void)
 
 static void esp_now_receive_callback(const esp_now_recv_info_t *recv_info, const uint8_t *data, int data_len)
 {
-    char print_buffer[256]; // Buffer for web_server_print
-
     /* Check if the packet info exists and has a valid source address */
     if (recv_info == NULL || recv_info->src_addr == NULL) 
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Error: Invalid receive info or source address");
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging Warning: Received NULL packet info or source address in esp_now_receive_callback");
         return;
     }
 
@@ -332,18 +310,16 @@ static void esp_now_receive_callback(const esp_now_recv_info_t *recv_info, const
     {
         /* If neither condition is true, we received data from an unexpected source.
            This could be a misconfiguration or an attempt to send data from an unauthorized device. */
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Warning: Received data from unexpected MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
-                 mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging Warning: Received data from unexpected source: %02X:%02X:%02X:%02X:%02X:%02X",
+                   mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
         return; // Ignore data from unexpected sources
     }
 
     /* Check if the received data length matches the expected size. If it doesn't, we might be receving corrupted data or simply not the data we expect */
     if (data_len != sizeof(navi_coordinates_type)) 
     {
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Warning: Received data size (%d) doesn't match expected size (%d)",
-                 data_len, sizeof(navi_coordinates_type));
-        web_server_print(print_buffer);
+        LOG_TO_RPI("NaviLogging Warning: Received data length (%d) does not match expected size (%zu) in esp_now_receive_callback",
+                   data_len, sizeof(navi_coordinates_type));
         return;
     }
 
@@ -360,16 +336,15 @@ static void esp_now_receive_callback(const esp_now_recv_info_t *recv_info, const
     }
     else
     {
-        // Failed to take mutex, data might be lost or delayed. Log this.
-        snprintf(print_buffer, sizeof(print_buffer), "NaviLogging Warning: Failed to take mutex in esp_now_receive_callback. Data might be dropped.");
-        web_server_print(print_buffer);
+        /* Failed to take mutex, data might be lost or delayed. Log this. */
+        LOG_TO_RPI("NaviLogging Error: Failed to take mutex in esp_now_receive_callback, data might be lost or delayed");
     }
 }
 
 static void navi_coordinates_processing_task(void *xTaskParameter)
 {
     /******************** Task Initialization ********************/
-    char print_buffer[256]; // Buffer for web_server_print
+
 
     /************************* Task Loop *************************/
     while (1) 
@@ -384,18 +359,12 @@ static void navi_coordinates_processing_task(void *xTaskParameter)
             esp_err_t err = NaviLogging_get_last_coordinates(&coordinates);
             if (err == ESP_OK) 
             {
-                snprintf(print_buffer, sizeof(print_buffer),
-                         "NaviLogging Task: New coordinates received - lat=%.6f, lon=%.6f, alt=%.2f",
-                         coordinates.latitude, coordinates.longitude, coordinates.altitude);
-                web_server_print(print_buffer); //TODO: Send this data to the Raspberry Pi instead of web server 
                 LOG_TO_RPI("NaviLogging Task: New coordinates received - lat=%.6f, lon=%.6f, alt=%.2f\n",
                        coordinates.latitude, coordinates.longitude, coordinates.altitude);
             } 
             else 
             {
-                snprintf(print_buffer, sizeof(print_buffer),
-                         "NaviLogging Task: Failed to get new coordinates - this should never happen (only error condition is if the pointer is NULL)");
-                web_server_print(print_buffer);
+                LOG_TO_RPI("NaviLogging Task: Failed to get new coordinates - this should never happen (only error condition is if the pointer is NULL)");
             }
         } 
 
