@@ -31,11 +31,17 @@
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
 
+/* Structure to hold navigation coordinates and related data.
+ * It has to match the structure used in the ESP-NOW communication on the sender side (the Navigation App ESP32 device).
+ */
 typedef struct 
 {
-    double latitude;
-    double longitude;
-    double altitude;
+    double latitude;                        /*!< Latitude in decimal degrees */
+    double longitude;                       /*!< Longitude in decimal degrees */
+    double altitude;                        /*!< Altitude in meters */
+    int quality_indicator;                  /*!< GPS quality indicator (0-6): 0=No fix, 1/2=2D/3D fix, 3=PPS, 4=RTK fixed, etc. */
+    int number_of_satellites;               /*!< Number of satellites used in the position fix (0-12+) */
+    double horizontal_dilution_of_precision; /*!< Horizontal Dilution of Precision (HDOP) - lower values indicate better accuracy */
 } navi_coordinates_type;
 
 /*******************************************************************************/

@@ -91,7 +91,7 @@ static void navi_coordinates_processing_task(void *xTaskParameter);
 /*                             STATIC VARIABLES                                */
 /*******************************************************************************/
 /* Variable for storing received coordinates */
-static navi_coordinates_type last_coordinates = {0.0, 0.0, 0.0};
+static navi_coordinates_type last_coordinates;
 
 /* Flag to signal if new data is available */
 static bool new_data_available = false;
@@ -359,8 +359,9 @@ static void navi_coordinates_processing_task(void *xTaskParameter)
             esp_err_t err = NaviLogging_get_last_coordinates(&coordinates);
             if (err == ESP_OK) 
             {
-                LOG_TO_RPI("NaviLogging Task: New coordinates received - lat=%.6f, lon=%.6f, alt=%.2f\n",
-                       coordinates.latitude, coordinates.longitude, coordinates.altitude);
+                LOG_TO_RPI("NaviLogging Task: New coordinates received - lat:%.7f,lon:%.7f,alt:%.2f,fix:%d,hdop:%.1f,sats:%d\n",
+                       coordinates.latitude, coordinates.longitude, coordinates.altitude, 
+                       coordinates.quality_indicator, coordinates.horizontal_dilution_of_precision, coordinates.number_of_satellites);
             } 
             else 
             {
