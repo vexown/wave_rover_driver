@@ -1,6 +1,6 @@
 /******************************************************************************
  * @file i2c_manager.h
- * @brief Header file for the Template component
+ * @brief Header file for the I2C Manager component
  *
  ******************************************************************************/
 
@@ -22,10 +22,17 @@
 
 /* ESP-IDF Libraries */
 #include "esp_err.h"
+#include "driver/i2c_master.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
 /*******************************************************************************/
+/* Default I2C configuration parameters based on the Waveshare General Driver for Robots
+   board and the sensors connected to it. */
+#define I2C_MANAGER_DEFAULT_PORT I2C_NUM_0  // Default I2C port number
+#define I2C_MANAGER_DEFAULT_SDA GPIO_NUM_32 // Default SDA pin
+#define I2C_MANAGER_DEFAULT_SCL GPIO_NUM_33 // Default SCL pin
+#define I2C_MANAGER_DEFAULT_FREQ 400000 // Default I2C frequency in Hz (400kHz)
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
@@ -47,20 +54,33 @@
 /*******************************************************************************/
 
 /**
- * @brief Perform an action using the Template component.
+ * @brief Initialize the I2C manager with the specified I2C port and GPIO pins.
  *
- * @details This is an example of to document a function that is shared across
- *          multiple files. Keep to the convention of using Doxygen style and
- *          place them above the function declaration.
+ * This function configures and then allocates an I2C master bus.
  *
- * @param[in] input_data Input data for the action.
- * @param[out] output_data Pointer to store the result.
+ * @param i2c_port The I2C port to use (e.g., I2C_NUM_0, I2C_NUM_1).
+ * @param sda_pin The GPIO pin number for the SDA line.
+ * @param scl_pin The GPIO pin number for the SCL line.
  *
  * @return
- *      - ESP_OK on success
- *      - ESP_ERR_INVALID_ARG if input parameters are invalid
- *      - Other esp_err_t codes as needed
+ *     - ESP_OK on success
+ *     - error code on failure
  */
-// esp_err_t i2c_manager_perform_action(int input_data, int* output_data);
+esp_err_t i2c_manager_init(i2c_port_t i2c_port, gpio_num_t sda_pin, gpio_num_t scl_pin);
+
+
+/**
+ * @brief Function for retrieving the I2C bus handle.
+ * 
+ * @param bus_handle Pointer to a variable where the I2C bus handle will be stored.
+ * 
+ * @return
+ *     - ESP_OK on success
+ *     - ESP_ERR_INVALID_ARG if the bus_handle pointer is NULL
+ *     - ESP_ERR_INVALID_STATE if the I2C bus has not been initialized
+ *     - ESP_FAIL on other errors
+ */
+esp_err_t i2c_manager_get_bus_handle(i2c_master_bus_handle_t *bus_handle);
+
 
 #endif /* I2C_MANAGER_H */
