@@ -6,7 +6,9 @@
  *          board (https://www.waveshare.com/general-driver-for-robots.htm) consists of:
  *              - AK09918 magnetometer: https://www.akm.com/content/dam/documents/products/electronic-compass/ak09918c/ak09918c-en-datasheet.pdf
  *              - QMI8658 accelerometer/gyroscope: https://qstcorp.com/upload/pdf/202202/QMI8658C%20datasheet%20rev%200.9.pdf
- *          The ESP32 can communicate with both sensors via I2C.
+ *          The ESP32 can communicate with both sensors via I2C:
+ *             - AK09918: I2C address 0x0C
+ *             - QMI8658: I2C address 0x6A (or 0x6B if SA0 pin is pulled down)
  *
  * 9-Axis IMU (Inertial Measurement Unit) Summary:
  * A 9-axis IMU is a sensor module that provides data from three types of
