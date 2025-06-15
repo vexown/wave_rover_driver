@@ -29,6 +29,7 @@
 /* Project Includes */
 #include "oled_display.h"
 #include "font8x8_basic.h" 
+#include "i2c_manager.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -42,9 +43,9 @@
  * General Driver for Robots which is the board we are using
  * https://files.waveshare.com/upload/3/37/General_Driver_for_Robots.pdf 
  **/
-#define OLED_I2C_PORT       I2C_NUM_0 // Use I2C port 0
-#define OLED_I2C_SDA_PIN    GPIO_NUM_32 
-#define OLED_I2C_SCL_PIN    GPIO_NUM_33 
+#define OLED_I2C_PORT       I2C_MANAGER_DEFAULT_PORT
+#define OLED_I2C_SDA_PIN    I2C_MANAGER_DEFAULT_SDA
+#define OLED_I2C_SCL_PIN    I2C_MANAGER_DEFAULT_SCL 
 
 /* I2C address of the SSD1306 OLED display. The address is typically 0x3C for most
  * SSD1306 displays. This can be confirmed in the datasheet of the display or by
@@ -138,10 +139,9 @@ static esp_err_t oled_init_cleanup(esp_err_t log_ret);
 /*******************************************************************************/
 /*                             STATIC VARIABLES                                */
 /*******************************************************************************/
-/* I2C and LCD Panel handles. In our case we are using I2C for the SSD1306 OLED,
+/* LCD Panel handles. In our case we are using I2C for the SSD1306 OLED,
  * which is not an LCD panel, but the API is designed to be generic for various types of displays.
  * Both LCD and OLED technologies can control individual pixels, so the very general idea is similar */
-static i2c_master_bus_handle_t i2c_bus_handle = NULL;
 static esp_lcd_panel_io_handle_t io_handle = NULL;
 static esp_lcd_panel_handle_t panel_handle = NULL;
 
@@ -163,31 +163,31 @@ static uint8_t oled_buffer[OLED_WIDTH * (OLED_HEIGHT / 8)];
 esp_err_t oled_init(void)
 {
     esp_err_t ret = ESP_OK;
+    i2c_master_bus_handle_t i2c_bus_handle = NULL;
 
     /* #01 - Initialize I2C bus (if not already done) for communication between ESP32 and OLED display */
-    ESP_LOGI(TAG, "Initializing I2C master");
-    if (!i2c_bus_handle)
+    ESP_LOGI(TAG, "Initializing I2C master bus");
+    ret = i2c_manager_init(OLED_I2C_PORT, OLED_I2C_SDA_PIN, OLED_I2C_SCL_PIN);
+    if ((ret == ESP_OK) || (ret == ESP_ERR_INVALID_STATE))
     {
-        /* Define the I2C bus configuration */
-        /* Make sure to set the correct SDA and SCL pins that are used in your setup */
-        i2c_master_bus_config_t i2c_mst_config =
-        {
-            .clk_source = I2C_CLK_SRC_DEFAULT,      // Use default clock source
-            .i2c_port = OLED_I2C_PORT,              // Use the I2C port 0 (we have two ports available, 0 and 1)
-            .scl_io_num = OLED_I2C_SCL_PIN,         // SCL pin connected to the OLED display
-            .sda_io_num = OLED_I2C_SDA_PIN,         // SDA pin connected to the OLED display
-            .glitch_ignore_cnt = 7,                 // Glitch filter count (7 is a common value)
-            .flags.enable_internal_pullup = true,   // Enable internal pull-up resistors (recommended for I2C lines)
-        };
-
-        /* Use the defined I2C bus configuration to allocate a new I2C master bus */
-        /* The bus handle will be used for all I2C operations for our OLED display */
-        ret = i2c_new_master_bus(&i2c_mst_config, &i2c_bus_handle);
+        /* We either successfully initialized I2C master bus or it was already initialized.
+         * In either case, we can proceed to get the bus handle. 
+         * The bus handle will be used for all I2C operations for our OLED display */
+        ret = i2c_manager_get_bus_handle(&i2c_bus_handle);
         if (ret != ESP_OK) 
         {
-            ESP_LOGE(TAG, "I2C new master bus failed: %s", esp_err_to_name(ret));
-            return oled_init_cleanup(ret); // Cleanup resources allocated so far and return the error
+            ESP_LOGE(TAG, "Failed to get I2C bus handle: %s", esp_err_to_name(ret));
+            return oled_init_cleanup(ret);
         }
+        else
+        {
+            ESP_LOGI(TAG, "oled_init successfully retrieved the I2C bus handle");
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to initialize I2C master bus: %s", esp_err_to_name(ret));
+        return oled_init_cleanup(ret);
     }
 
     /* #02 - Initialize the panel IO */
@@ -535,7 +535,7 @@ static esp_err_t oled_init_cleanup(esp_err_t log_ret)
     ESP_LOGE(TAG, "OLED initialization failed with error: %s", esp_err_to_name(log_ret));
     /* Cleanup resources allocated during initialization. Set handles to NULL to avoid dangling pointers */
     /* Note: The order of deletion is important. Always delete resources in reverse order of allocation. 
-     * In this case, we delete the panel first, then the IO, and finally the I2C bus. 
+     * In this case, we delete the panel first, then the IO handle.
      **/
     if (panel_handle)
     {
@@ -548,12 +548,6 @@ static esp_err_t oled_init_cleanup(esp_err_t log_ret)
         esp_lcd_panel_io_del(io_handle);
         io_handle = NULL;
         ESP_LOGI(TAG, "Deleted panel IO handle.");
-    }
-    if (i2c_bus_handle) 
-    {
-        i2c_del_master_bus(i2c_bus_handle);
-        i2c_bus_handle = NULL;
-        ESP_LOGI(TAG, "Deleted I2C master bus handle.");
     }
 
     return log_ret; // Return the original error code
