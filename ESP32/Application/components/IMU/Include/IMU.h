@@ -87,6 +87,8 @@
 /*    specifier for functions, so it is not necessary to use it explicitly.    */
 /*******************************************************************************/
 
+esp_err_t imu_init(void);
+
 
 
 #endif /* IMU_H */
