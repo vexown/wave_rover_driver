@@ -123,6 +123,18 @@ static void init_components(void)
         LOG_TO_RPI("Motor Control Initialized.");
     }
 
+    /******************************* I2C Manager *******************************/
+    LOG_TO_RPI("Initializing I2C Manager...");
+    esp_err_t i2c_err = i2c_manager_init(I2C_MANAGER_DEFAULT_PORT, I2C_MANAGER_DEFAULT_SDA, I2C_MANAGER_DEFAULT_SCL);
+    if (i2c_err != ESP_OK)
+    {
+        LOG_TO_RPI("I2C Manager initialization failed: %s", esp_err_to_name(i2c_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
+    }
+    else
+    {
+        LOG_TO_RPI("I2C Manager Initialized.");
+    }
+
     /******************************* OLED Display *******************************/
     LOG_TO_RPI("Initializing OLED Display...");
     // oled_err is global, so it's updated directly

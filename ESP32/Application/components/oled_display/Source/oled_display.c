@@ -38,15 +38,6 @@
  *  ESP_LOGI(TAG, "Log message which will be appended to the tag"); */
 #define TAG "OLED_DISPLAY"
 
-/* I2C Configuration of the SSD1306 OLED display with the ESP32 */
-/* For SDA and SCL GPIO number confirmation see the schematics of the Waveshare 
- * General Driver for Robots which is the board we are using
- * https://files.waveshare.com/upload/3/37/General_Driver_for_Robots.pdf 
- **/
-#define OLED_I2C_PORT       I2C_MANAGER_DEFAULT_PORT
-#define OLED_I2C_SDA_PIN    I2C_MANAGER_DEFAULT_SDA
-#define OLED_I2C_SCL_PIN    I2C_MANAGER_DEFAULT_SCL 
-
 /* I2C address of the SSD1306 OLED display. The address is typically 0x3C for most
  * SSD1306 displays. This can be confirmed in the datasheet of the display or by
  * using an I2C scanner tool. */
@@ -165,29 +156,18 @@ esp_err_t oled_init(void)
     esp_err_t ret = ESP_OK;
     i2c_master_bus_handle_t i2c_bus_handle = NULL;
 
-    /* #01 - Initialize I2C bus (if not already done) for communication between ESP32 and OLED display */
-    ESP_LOGI(TAG, "Initializing I2C master bus");
-    ret = i2c_manager_init(OLED_I2C_PORT, OLED_I2C_SDA_PIN, OLED_I2C_SCL_PIN);
-    if ((ret == ESP_OK) || (ret == ESP_ERR_INVALID_STATE))
+    /* #01 - Initialize I2C bus for communication between ESP32 and OLED display */
+    /* I2C already initialized in app_main, just get the bus handle */
+    ESP_LOGI(TAG, "Getting I2C bus handle");
+    ret = i2c_manager_get_bus_handle(&i2c_bus_handle);
+    if (ret != ESP_OK) 
     {
-        /* We either successfully initialized I2C master bus or it was already initialized.
-         * In either case, we can proceed to get the bus handle. 
-         * The bus handle will be used for all I2C operations for our OLED display */
-        ret = i2c_manager_get_bus_handle(&i2c_bus_handle);
-        if (ret != ESP_OK) 
-        {
-            ESP_LOGE(TAG, "Failed to get I2C bus handle: %s", esp_err_to_name(ret));
-            return oled_init_cleanup(ret);
-        }
-        else
-        {
-            ESP_LOGI(TAG, "oled_init successfully retrieved the I2C bus handle");
-        }
+        ESP_LOGE(TAG, "Failed to get I2C bus handle: %s", esp_err_to_name(ret));
+        return oled_init_cleanup(ret);
     }
     else
     {
-        ESP_LOGE(TAG, "Failed to initialize I2C master bus: %s", esp_err_to_name(ret));
-        return oled_init_cleanup(ret);
+        ESP_LOGI(TAG, "oled_init successfully retrieved the I2C bus handle");
     }
 
     /* #02 - Initialize the panel IO */

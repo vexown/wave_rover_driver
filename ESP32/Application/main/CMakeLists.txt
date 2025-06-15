@@ -25,7 +25,8 @@ idf_component_register(SRCS "app_main.c"
                                 motor_control
                                 oled_display
                                 web_server
-                                NaviLogging   
+                                NaviLogging
+                                i2c_manager
                       )
 
 

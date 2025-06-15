@@ -27,8 +27,11 @@
 /*******************************************************************************/
 /*                                  MACROS                                     */
 /*******************************************************************************/
-/* Default I2C configuration parameters based on the Waveshare General Driver for Robots
-   board and the sensors connected to it. */
+/* Default I2C configuration parameters.
+ * For SDA and SCL GPIO number confirmation see the schematics of the Waveshare 
+ * General Driver for Robots which is the board we are using
+ * https://files.waveshare.com/upload/3/37/General_Driver_for_Robots.pdf 
+ **/
 #define I2C_MANAGER_DEFAULT_PORT I2C_NUM_0  // Default I2C port number
 #define I2C_MANAGER_DEFAULT_SDA GPIO_NUM_32 // Default SDA pin
 #define I2C_MANAGER_DEFAULT_SCL GPIO_NUM_33 // Default SCL pin
