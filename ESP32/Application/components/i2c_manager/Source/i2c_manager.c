@@ -56,8 +56,9 @@
 /*******************************************************************************/
 /*                             STATIC VARIABLES                                */
 /*******************************************************************************/
-i2c_master_bus_handle_t i2c_manager_bus_handle = NULL; // Global handle for the I2C master bus
+static i2c_master_bus_handle_t i2c_manager_bus_handle = NULL; // Global handle for the I2C master bus
 
+static bool i2c_manager_initialized = false; // Flag to check if the I2C manager has been initialized
 
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
@@ -65,6 +66,13 @@ i2c_master_bus_handle_t i2c_manager_bus_handle = NULL; // Global handle for the 
 
 esp_err_t i2c_manager_init(i2c_port_t i2c_port, gpio_num_t sda_pin, gpio_num_t scl_pin)
 {
+    /* Check if the I2C manager is already initialized */
+    if ((i2c_manager_initialized) || (i2c_manager_bus_handle != NULL))
+    {
+        ESP_LOGW(TAG, "I2C manager is already initialized. To reinitialize, please call i2c_manager_deinit() first.");
+        return ESP_ERR_INVALID_STATE; // Return error if already initialized
+    }
+
     ESP_LOGI(TAG, "Initializing I2C master");
 
     /* Define the I2C bus configuration */
@@ -89,9 +97,37 @@ esp_err_t i2c_manager_init(i2c_port_t i2c_port, gpio_num_t sda_pin, gpio_num_t s
     else
     {
         ESP_LOGI(TAG, "I2C master bus initialized successfully on port %d", i2c_port);
+        i2c_manager_initialized = true; 
     }
 
     return i2c_alloc_status; // Return the status of the I2C bus allocation
+}
+
+esp_err_t i2c_manager_deinit(void)
+{
+    /* Check if the I2C manager is initialized */
+    if (!i2c_manager_initialized || i2c_manager_bus_handle == NULL)
+    {
+        ESP_LOGW(TAG, "I2C manager is not initialized. Nothing to deinitialize.");
+        return ESP_ERR_INVALID_STATE; // Return error if not initialized
+    }
+
+    /* Deinitialize the I2C master bus and delete the bus handle */
+    esp_err_t delete_status = i2c_del_master_bus(i2c_manager_bus_handle);
+    if(delete_status == ESP_OK)
+    {
+        ESP_LOGI(TAG, "I2C master bus deleted successfully.");
+
+        /* Reset the global bus handle and initialization flag */
+        i2c_manager_bus_handle = NULL;
+        i2c_manager_initialized = false;
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to delete I2C master bus: %s", esp_err_to_name(delete_status));
+    }
+
+    return delete_status; 
 }
 
 esp_err_t i2c_manager_get_bus_handle(i2c_master_bus_handle_t *bus_handle)

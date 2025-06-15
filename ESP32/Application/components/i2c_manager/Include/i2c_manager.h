@@ -64,9 +64,24 @@
  *
  * @return
  *     - ESP_OK on success
- *     - error code on failure
+ *     - ESP_ERR_INVALID_STATE if the I2C manager has already been initialized
+ *     - specific error code from i2c_new_master_bus failure (see i2c_master.h for details)
  */
 esp_err_t i2c_manager_init(i2c_port_t i2c_port, gpio_num_t sda_pin, gpio_num_t scl_pin);
+
+
+/**
+ * @brief Deinitialize the I2C manager and release resources.
+ *
+ * This function deallocates the I2C master bus and resets the internal state.
+ * It should be called when the I2C manager is no longer needed.
+ *
+ * @return
+ *     - ESP_OK on success
+ *     - ESP_ERR_INVALID_STATE if the I2C manager has not been initialized
+ *     - specific error code from i2c_del_master_bus failure (see i2c_master.h for details)
+ */
+esp_err_t i2c_manager_deinit(void);
 
 
 /**
