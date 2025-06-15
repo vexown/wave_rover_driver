@@ -31,7 +31,7 @@
 /* --- QMI8658C Register Definitions & Configuration --- */
 
 /* The 7-bit I2C slave address for the QMI8658C. 0x6A if SA0 is high/unconnected, 0x6B if SA0 is low. */
-#define QMI8658_I2C_ADDR_DEFAULT    0x6A // assuming SA0 is high (default)
+#define QMI8658_I2C_ADDR_DEFAULT    0x6B // On our board, the SA0 pin is pulled low, so we use 0x6B
 
 /* Register addresses */
 #define QMI8658_WHO_AM_I_REG        0x00 // Device identifier register 
