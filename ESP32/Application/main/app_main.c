@@ -16,11 +16,12 @@
 #include "oled_display.h"
 #include "web_server.h"
 #include "NaviLogging.h"
+#include "i2c_manager.h"
 
 /*******************************************************************************/
 /*                                 MACROS                                      */
 /*******************************************************************************/
-#define FW_VERSION "01.08" // Firmware version (MAJOR.MINOR)
+#define FW_VERSION "01.09" // Firmware version (MAJOR.MINOR)
 
 /*******************************************************************************/
 /*                               DATA TYPES                                    */
