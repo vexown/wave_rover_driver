@@ -17,6 +17,7 @@
 #include "web_server.h"
 #include "NaviLogging.h"
 #include "i2c_manager.h"
+#include "IMU.h"
 
 /*******************************************************************************/
 /*                                 MACROS                                      */
@@ -171,6 +172,18 @@ static void init_components(void)
     else
     {
         LOG_TO_RPI("NaviLogging Initialized.");
+    }
+
+    /******************************* IMU Initialization *******************************/
+    LOG_TO_RPI("Initializing IMU...");
+    esp_err_t imu_err = imu_init();
+    if (imu_err != ESP_OK)
+    {
+        LOG_TO_RPI("IMU initialization failed: %s", esp_err_to_name(imu_err)); // Log the error but continue execution
+    }
+    else
+    {
+        LOG_TO_RPI("IMU Initialized.");
     }
 }
 

@@ -27,6 +27,7 @@ idf_component_register(SRCS "app_main.c"
                                 web_server
                                 NaviLogging
                                 i2c_manager
+                                IMU
                       )
 
 
