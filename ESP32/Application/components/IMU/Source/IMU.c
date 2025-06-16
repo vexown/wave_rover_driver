@@ -20,6 +20,7 @@
 /* Project Includes */
 #include "IMU.h"
 #include "i2c_manager.h"
+#include "web_server.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -128,13 +129,15 @@ static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data)
 esp_err_t imu_init(void)
 {
     esp_err_t ret = ESP_OK;
+    char log_buffer[256]; // Buffer for formatted log messages
 
     /* Get I2C bus handle */
     i2c_master_bus_handle_t i2c_manager_bus_handle = NULL;
     ret = i2c_manager_get_bus_handle(&i2c_manager_bus_handle);
     if (ret != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to get I2C bus handle: %s", esp_err_to_name(ret));
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to get I2C bus handle: %s", esp_err_to_name(ret));
+        web_server_print(log_buffer);
         return ret;
     }
 
@@ -153,20 +156,17 @@ esp_err_t imu_init(void)
     ret = i2c_master_bus_add_device(i2c_manager_bus_handle, &dev_cfg, &qmi8658_dev_handle);
     if (ret != ESP_OK) 
     {
-        ESP_LOGE(TAG, "Failed to add QMI8658C device to I2C bus");
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to add QMI8658C device to I2C bus");
+        web_server_print(log_buffer);
         return ret;
-    }
-    else
-    {
-        ESP_LOGI(TAG, "QMI8658C device added to I2C bus successfully");
     }
 
     /* Soft reset the device to ensure a clean startup */
-    ESP_LOGI(TAG, "Resetting device...");
-    ret = qmi8658_write_reg(QMI8658_RESET_REG, 0xB0); // Writing 0xB0 triggers a reset 
-    if (ret != ESP_OK) 
+    ret = qmi8658_write_reg(QMI8658_RESET_REG, 0xB0); // Writing 0xB0 triggers a reset
+    if (ret != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to reset QMI8658C");
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to reset QMI8658C: %s", esp_err_to_name(ret));
+        web_server_print(log_buffer);
         i2c_master_bus_rm_device(qmi8658_dev_handle);
         return ret;
     }
@@ -178,52 +178,54 @@ esp_err_t imu_init(void)
     ret = qmi8658_read_reg(QMI8658_WHO_AM_I_REG, &chip_id);
     if (ret != ESP_OK) 
     {
-        ESP_LOGE(TAG, "Failed to read WHO_AM_I register");
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to read WHO_AM_I register");
+        web_server_print(log_buffer);
         i2c_master_bus_rm_device(qmi8658_dev_handle);
         return ret;
     }
     if (chip_id != QMI8658_DEVICE_ID) 
     {
-        ESP_LOGE(TAG, "Device ID mismatch! Expected 0x%02X, got 0x%02X", QMI8658_DEVICE_ID, chip_id);
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Device ID mismatch! Expected 0x%02X, got 0x%02X", QMI8658_DEVICE_ID, chip_id);
+        web_server_print(log_buffer);
         i2c_master_bus_rm_device(qmi8658_dev_handle);
         return ESP_FAIL;
     }
-    ESP_LOGI(TAG, "Device ID verified successfully: 0x%02X", chip_id);
 
     /* Configure sensor settings */
-    ESP_LOGI(TAG, "Configuring sensor registers for IMU operation...");
-
     /* Configure Accelerometer settings (CTRL2) */
     if (qmi8658_write_reg(QMI8658_CTRL2_REG, QMI8658_ACCEL_CONFIG) != ESP_OK) 
     {
-         ESP_LOGE(TAG, "Failed to configure accelerometer (CTRL2)");
+         snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure accelerometer (CTRL2)");
+         web_server_print(log_buffer);
          return ESP_FAIL;
     }
-
     /* Configure Gyroscope settings (CTRL3) */
     if (qmi8658_write_reg(QMI8658_CTRL3_REG, QMI8658_GYRO_CONFIG) != ESP_OK) 
     {
-        ESP_LOGE(TAG, "Failed to configure gyroscope (CTRL3)");
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure gyroscope (CTRL3)");
+        web_server_print(log_buffer);
         return ESP_FAIL;
     }
-
     /* Configure address auto-increment for multi-byte reads (CTRL1) */
     if (qmi8658_write_reg(QMI8658_CTRL1_REG, QMI8658_CTRL1_CONFIG) != ESP_OK) 
     {
-        ESP_LOGE(TAG, "Failed to configure auto-increment (CTRL1)");
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure auto-increment (CTRL1)");
+        web_server_print(log_buffer);
         return ESP_FAIL;
     }
-
     /* Enable the accelerometer and gyroscope (CTRL7) */
     if (qmi8658_write_reg(QMI8658_CTRL7_REG, QMI8658_SENSOR_ENABLE) != ESP_OK) 
     {
-        ESP_LOGE(TAG, "Failed to enable sensors (CTRL7)");
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to enable sensors (CTRL7)");
+        web_server_print(log_buffer);
         return ESP_FAIL;
     }
 
     /* A short delay to allow the sensors to stabilize after being enabled */
     vTaskDelay(pdMS_TO_TICKS(20));
-    ESP_LOGI(TAG, "QMI8658C configured successfully as an IMU.");
+    
+    snprintf(log_buffer, sizeof(log_buffer), "IMU: QMI8658C configured successfully as an IMU.");
+    web_server_print(log_buffer);
 
     /* Initialize AK09918 magnetometer */
     /* TODO */
