@@ -111,6 +111,15 @@ static i2c_master_dev_handle_t qmi8658_dev_handle = NULL;
 static esp_err_t qmi8658_init(void);
 
 /**
+ * @brief Initialize the I2C bus for the QMI8658C sensor.
+ * This function acquires the I2C bus handle, configures the device address,
+ * and sets the I2C speed. After that, it adds the QMI8658C device to the I2C bus.
+ * 
+ * @return ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t qmi8658_i2c_init(void);
+
+/**
  * @brief Write a single byte to a specific register on the QMI8658C.
  *
  * @param reg_addr The register address to write to.
@@ -166,34 +175,11 @@ static esp_err_t qmi8658_init(void)
 {
     esp_err_t ret = ESP_OK;
     char log_buffer[256]; // Buffer for formatted log messages
-
-    /* Get I2C bus handle */
-    i2c_master_bus_handle_t i2c_manager_bus_handle = NULL;
-    ret = i2c_manager_get_bus_handle(&i2c_manager_bus_handle);
+    
+    /* Initialize I2C bus for QMI8658C */
+    ret = qmi8658_i2c_init();
     if (ret != ESP_OK)
     {
-        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to get I2C bus handle: %s", esp_err_to_name(ret));
-        web_server_print(log_buffer);
-        return ret;
-    }
-
-    /* Initialize QMI8658 accelerometer and gyroscope */
-    /* Define the configuration for the QMI8658C device */
-    i2c_device_config_t dev_cfg = 
-    {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,      // 7-bit address length
-        .device_address = QMI8658_I2C_ADDR_DEFAULT, // Default I2C address for QMI8658C
-        .scl_speed_hz = 400000,                     // I2C Fast Mode supported up to 400 kHz 
-        .scl_wait_us = 0,                           // Use default wait time
-        .flags.disable_ack_check = false,           // Enable ACK check 
-    };
-
-    /* Add the QMI8658C device to the I2C bus */
-    ret = i2c_master_bus_add_device(i2c_manager_bus_handle, &dev_cfg, &qmi8658_dev_handle);
-    if (ret != ESP_OK) 
-    {
-        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to add QMI8658C device to I2C bus");
-        web_server_print(log_buffer);
         return ret;
     }
 
@@ -271,6 +257,44 @@ static esp_err_t qmi8658_init(void)
         web_server_print(log_buffer);
         i2c_master_bus_rm_device(qmi8658_dev_handle);
         return ESP_FAIL;
+    }
+
+    return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
+}
+
+static esp_err_t qmi8658_i2c_init(void)
+{
+    esp_err_t ret = ESP_OK;
+    char log_buffer[256]; // Buffer for formatted log messages
+
+    /* Get I2C bus handle */
+    i2c_master_bus_handle_t i2c_manager_bus_handle = NULL;
+    ret = i2c_manager_get_bus_handle(&i2c_manager_bus_handle);
+    if (ret != ESP_OK)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to get I2C bus handle: %s", esp_err_to_name(ret));
+        web_server_print(log_buffer);
+        return ret;
+    }
+
+    /* Initialize QMI8658 accelerometer and gyroscope */
+    /* Define the configuration for the QMI8658C device */
+    i2c_device_config_t dev_cfg = 
+    {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,      // 7-bit address length
+        .device_address = QMI8658_I2C_ADDR_DEFAULT, // Default I2C address for QMI8658C
+        .scl_speed_hz = 400000,                     // I2C Fast Mode supported up to 400 kHz 
+        .scl_wait_us = 0,                           // Use default wait time
+        .flags.disable_ack_check = false,           // Enable ACK check 
+    };
+
+    /* Add the QMI8658C device to the I2C bus */
+    ret = i2c_master_bus_add_device(i2c_manager_bus_handle, &dev_cfg, &qmi8658_dev_handle);
+    if (ret != ESP_OK) 
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to add QMI8658C device to I2C bus");
+        web_server_print(log_buffer);
+        return ret;
     }
 
     return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
