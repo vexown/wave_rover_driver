@@ -64,6 +64,11 @@
  * gEN = 1 (Enable Gyroscope) */
 #define QMI8658_SENSOR_ENABLE       0b00000011
 
+/* FreeRTOS task configuration */
+#define TASK_READ_QMI8658_DATA_PRIORITY (tskIDLE_PRIORITY + 1)
+#define TASK_READ_QMI8658_DATA_STACK_SIZE 2048 // Stack size in bytes
+#define TASK_READ_QMI8658_DATA_PERIOD_TICKS pdMS_TO_TICKS(100) // Task period in ticks (100 ms)
+
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
@@ -120,6 +125,15 @@ static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data)
 {
     return i2c_master_transmit_receive(qmi8658_dev_handle, &reg_addr, 1, data, 1, -1);
 }
+
+/**
+ * @brief Task to read data from the QMI8658C accelerometer and gyroscope.
+ * This task will periodically read sensor data and process it.
+ *
+ * @param pvParameters Pointer to task parameters (not used).
+ * @return void
+ */
+static void task_read_qmi8658_data(void* pvParameters);
 
 
 /*******************************************************************************/
@@ -223,10 +237,20 @@ esp_err_t imu_init(void)
 
     /* A short delay to allow the sensors to stabilize after being enabled */
     vTaskDelay(pdMS_TO_TICKS(20));
-    
+
     snprintf(log_buffer, sizeof(log_buffer), "IMU: QMI8658C configured successfully as an IMU.");
     web_server_print(log_buffer);
 
+    /* Create the task to read QMI8658C data */
+    BaseType_t status_task = xTaskCreate(task_read_qmi8658_data, "accel_gyro_data_read", TASK_READ_QMI8658_DATA_STACK_SIZE, NULL, TASK_READ_QMI8658_DATA_PRIORITY, NULL);
+    if(status_task != pdPASS)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to create task for reading QMI8658C data");
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(qmi8658_dev_handle);
+        return ESP_FAIL;
+    }
+    
     /* Initialize AK09918 magnetometer */
     /* TODO */
     
@@ -236,3 +260,17 @@ esp_err_t imu_init(void)
 /*******************************************************************************/
 /*                     STATIC FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
+
+static void task_read_qmi8658_data(void* pvParameters) 
+{
+    /********************* Task Initialization ***************************/ 
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+
+    while (1)
+    {
+        // TODO: Read sensor data from QMI8658C registers 0x35-0x40 and process it
+
+        vTaskDelayUntil(&xLastWakeTime, TASK_READ_QMI8658_DATA_PERIOD_TICKS); // Task should execute periodically, precisely (hence the use of vTaskDelayUntil)
+    }
+
+}
