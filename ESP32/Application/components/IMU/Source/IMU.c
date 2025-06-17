@@ -138,6 +138,16 @@ static esp_err_t qmi8658_reset(void);
 static esp_err_t qmi8658_verify_device_id(void);
 
 /**
+ * @brief Set the configuration for the QMI8658C in IMU mode.
+ * This function configures the accelerometer and gyroscope settings, including
+ * full-scale range and output data rate, as well as enabling auto-increment for
+ * multi-byte reads.
+ * 
+ * @return ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t qmi8658_set_config_for_IMU_mode(void);
+
+/**
  * @brief Write a single byte to a specific register on the QMI8658C.
  *
  * @param reg_addr The register address to write to.
@@ -215,29 +225,13 @@ static esp_err_t qmi8658_init(void)
         return ret;
     }
 
+    /* Set the configuration for the QMI8658C in IMU mode */
+    ret = qmi8658_set_config_for_IMU_mode();
+    if (ret != ESP_OK)
+    {
+        return ret;
+    }
 
-    /* Configure sensor settings */
-    /* Configure Accelerometer settings (CTRL2) */
-    if (qmi8658_write_reg(QMI8658_CTRL2_REG, QMI8658_ACCEL_CONFIG) != ESP_OK) 
-    {
-         snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure accelerometer (CTRL2)");
-         web_server_print(log_buffer);
-         return ESP_FAIL;
-    }
-    /* Configure Gyroscope settings (CTRL3) */
-    if (qmi8658_write_reg(QMI8658_CTRL3_REG, QMI8658_GYRO_CONFIG) != ESP_OK) 
-    {
-        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure gyroscope (CTRL3)");
-        web_server_print(log_buffer);
-        return ESP_FAIL;
-    }
-    /* Configure address auto-increment for multi-byte reads (CTRL1) */
-    if (qmi8658_write_reg(QMI8658_CTRL1_REG, QMI8658_CTRL1_CONFIG) != ESP_OK) 
-    {
-        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure auto-increment (CTRL1)");
-        web_server_print(log_buffer);
-        return ESP_FAIL;
-    }
     /* Enable the accelerometer and gyroscope (CTRL7) */
     if (qmi8658_write_reg(QMI8658_CTRL7_REG, QMI8658_SENSOR_ENABLE) != ESP_OK) 
     {
@@ -344,6 +338,37 @@ static esp_err_t qmi8658_verify_device_id(void)
         snprintf(log_buffer, sizeof(log_buffer), "IMU: Device ID mismatch! Expected 0x%02X, got 0x%02X", QMI8658_DEVICE_ID, chip_id);
         web_server_print(log_buffer);
         i2c_master_bus_rm_device(qmi8658_dev_handle);
+        return ESP_FAIL;
+    }
+
+    return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
+}
+
+static esp_err_t qmi8658_set_config_for_IMU_mode(void)
+{
+    esp_err_t ret = ESP_OK;
+    char log_buffer[256]; // Buffer for formatted log messages
+
+    /* Configure sensor settings */
+    /* Configure Accelerometer settings (CTRL2) */
+    if (qmi8658_write_reg(QMI8658_CTRL2_REG, QMI8658_ACCEL_CONFIG) != ESP_OK) 
+    {
+         snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure accelerometer (CTRL2)");
+         web_server_print(log_buffer);
+         return ESP_FAIL;
+    }
+    /* Configure Gyroscope settings (CTRL3) */
+    if (qmi8658_write_reg(QMI8658_CTRL3_REG, QMI8658_GYRO_CONFIG) != ESP_OK) 
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure gyroscope (CTRL3)");
+        web_server_print(log_buffer);
+        return ESP_FAIL;
+    }
+    /* Configure address auto-increment for multi-byte reads (CTRL1) */
+    if (qmi8658_write_reg(QMI8658_CTRL1_REG, QMI8658_CTRL1_CONFIG) != ESP_OK) 
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure auto-increment (CTRL1)");
+        web_server_print(log_buffer);
         return ESP_FAIL;
     }
 
