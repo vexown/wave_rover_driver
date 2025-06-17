@@ -107,12 +107,7 @@ static i2c_master_dev_handle_t qmi8658_dev_handle = NULL;
  * @param data The byte of data to write.
  * @return ESP_OK on success, ESP_FAIL on failure.
  */
-static esp_err_t qmi8658_write_reg(uint8_t reg_addr, uint8_t data) 
-{
-    uint8_t write_buf[2] = {reg_addr, data};
-    
-    return i2c_master_transmit(qmi8658_dev_handle, write_buf, sizeof(write_buf), -1);
-}
+static esp_err_t qmi8658_write_reg(uint8_t reg_addr, uint8_t data);
 
 /**
  * @brief Read a single byte from a specific register on the QMI8658C.
@@ -121,10 +116,7 @@ static esp_err_t qmi8658_write_reg(uint8_t reg_addr, uint8_t data)
  * @param data Pointer to store the read data.
  * @return ESP_OK on success, ESP_FAIL on failure.
  */
-static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data) 
-{
-    return i2c_master_transmit_receive(qmi8658_dev_handle, &reg_addr, 1, data, 1, -1);
-}
+static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data);
 
 /**
  * @brief Task to read data from the QMI8658C accelerometer and gyroscope.
@@ -260,6 +252,20 @@ esp_err_t imu_init(void)
 /*******************************************************************************/
 /*                     STATIC FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
+
+static esp_err_t qmi8658_write_reg(uint8_t reg_addr, uint8_t data) 
+{
+    uint8_t write_buf[2] = {reg_addr, data};
+    
+    return i2c_master_transmit(qmi8658_dev_handle, write_buf, sizeof(write_buf), -1);
+}
+
+
+static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data) 
+{
+    return i2c_master_transmit_receive(qmi8658_dev_handle, &reg_addr, 1, data, 1, -1);
+}
+
 
 static void task_read_qmi8658_data(void* pvParameters) 
 {
