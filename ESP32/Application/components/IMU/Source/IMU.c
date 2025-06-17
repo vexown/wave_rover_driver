@@ -120,6 +120,24 @@ static esp_err_t qmi8658_init(void);
 static esp_err_t qmi8658_i2c_init(void);
 
 /**
+ * @brief Reset the QMI8658C sensor.
+ * This function performs a soft reset of the QMI8658C by writing a specific value
+ * to the reset register. It also waits for the device to boot up.
+ * 
+ * @return ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t qmi8658_reset(void);
+
+/**
+ * @brief Verify the device ID of the QMI8658C sensor.
+ * This function reads the WHO_AM_I register to confirm that the device is a QMI8658C.
+ * If the device ID does not match the expected value, it returns an error.
+ * 
+ * @return ESP_OK if the device ID matches, or an error code on failure.
+ */
+static esp_err_t qmi8658_verify_device_id(void);
+
+/**
  * @brief Write a single byte to a specific register on the QMI8658C.
  *
  * @param reg_addr The register address to write to.
@@ -183,35 +201,20 @@ static esp_err_t qmi8658_init(void)
         return ret;
     }
 
-    /* Soft reset the device to ensure a clean startup */
-    ret = qmi8658_write_reg(QMI8658_RESET_REG, 0xB0); // Writing 0xB0 triggers a reset
+    /* Reset the QMI8658C device */
+    ret = qmi8658_reset();
     if (ret != ESP_OK)
     {
-        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to reset QMI8658C: %s", esp_err_to_name(ret));
-        web_server_print(log_buffer);
-        i2c_master_bus_rm_device(qmi8658_dev_handle);
         return ret;
     }
-    /* Wait for the device to boot up. The datasheet specifies 150ms system turn-on time. */
-    vTaskDelay(pdMS_TO_TICKS(150));
 
     /* Verify the device ID */
-    uint8_t chip_id = 0;
-    ret = qmi8658_read_reg(QMI8658_WHO_AM_I_REG, &chip_id);
-    if (ret != ESP_OK) 
+    ret = qmi8658_verify_device_id();
+    if (ret != ESP_OK)
     {
-        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to read WHO_AM_I register");
-        web_server_print(log_buffer);
-        i2c_master_bus_rm_device(qmi8658_dev_handle);
         return ret;
     }
-    if (chip_id != QMI8658_DEVICE_ID) 
-    {
-        snprintf(log_buffer, sizeof(log_buffer), "IMU: Device ID mismatch! Expected 0x%02X, got 0x%02X", QMI8658_DEVICE_ID, chip_id);
-        web_server_print(log_buffer);
-        i2c_master_bus_rm_device(qmi8658_dev_handle);
-        return ESP_FAIL;
-    }
+
 
     /* Configure sensor settings */
     /* Configure Accelerometer settings (CTRL2) */
@@ -295,6 +298,53 @@ static esp_err_t qmi8658_i2c_init(void)
         snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to add QMI8658C device to I2C bus");
         web_server_print(log_buffer);
         return ret;
+    }
+
+    return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
+}
+
+static esp_err_t qmi8658_reset(void)
+{
+    esp_err_t ret = ESP_OK;
+    char log_buffer[256]; // Buffer for formatted log messages
+
+    /* Soft reset the device to ensure a clean startup */
+    ret = qmi8658_write_reg(QMI8658_RESET_REG, 0xB0); // Writing 0xB0 triggers a reset
+    if (ret != ESP_OK)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to reset QMI8658C: %s", esp_err_to_name(ret));
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(qmi8658_dev_handle);
+        return ret;
+    }
+
+    /* Wait for the device to boot up. The datasheet specifies 150ms system turn-on time. */
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
+}
+
+static esp_err_t qmi8658_verify_device_id(void) 
+{
+    esp_err_t ret = ESP_OK;
+    char log_buffer[256]; // Buffer for formatted log messages
+
+    /* Verify the device ID */
+    uint8_t chip_id = 0;
+    ret = qmi8658_read_reg(QMI8658_WHO_AM_I_REG, &chip_id);
+    if (ret != ESP_OK) 
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to read WHO_AM_I register");
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(qmi8658_dev_handle);
+        return ret;
+    }
+    if (chip_id != QMI8658_DEVICE_ID) 
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Device ID mismatch! Expected 0x%02X, got 0x%02X", QMI8658_DEVICE_ID, chip_id);
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(qmi8658_dev_handle);
+        return ESP_FAIL;
     }
 
     return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
