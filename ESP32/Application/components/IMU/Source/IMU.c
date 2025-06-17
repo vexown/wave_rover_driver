@@ -148,6 +148,15 @@ static esp_err_t qmi8658_verify_device_id(void);
 static esp_err_t qmi8658_set_config_for_IMU_mode(void);
 
 /**
+ * @brief Enable the accelerometer and gyroscope on the QMI8658C.
+ * This function writes to the CTRL7 register to enable both sensors and
+ * includes a short delay to allow the sensors to stabilize.
+ * 
+ * @return ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t qmi8658_enable_accel_and_gyro(void);
+
+/**
  * @brief Write a single byte to a specific register on the QMI8658C.
  *
  * @param reg_addr The register address to write to.
@@ -232,16 +241,12 @@ static esp_err_t qmi8658_init(void)
         return ret;
     }
 
-    /* Enable the accelerometer and gyroscope (CTRL7) */
-    if (qmi8658_write_reg(QMI8658_CTRL7_REG, QMI8658_SENSOR_ENABLE) != ESP_OK) 
+    /* Enable the accelerometer and gyroscope */
+    ret = qmi8658_enable_accel_and_gyro();
+    if (ret != ESP_OK)
     {
-        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to enable sensors (CTRL7)");
-        web_server_print(log_buffer);
-        return ESP_FAIL;
+        return ret;
     }
-
-    /* A short delay to allow the sensors to stabilize after being enabled */
-    vTaskDelay(pdMS_TO_TICKS(20));
 
     snprintf(log_buffer, sizeof(log_buffer), "IMU: QMI8658C configured successfully as an IMU.");
     web_server_print(log_buffer);
@@ -371,6 +376,25 @@ static esp_err_t qmi8658_set_config_for_IMU_mode(void)
         web_server_print(log_buffer);
         return ESP_FAIL;
     }
+
+    return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
+}
+
+static esp_err_t qmi8658_enable_accel_and_gyro(void)
+{
+    esp_err_t ret = ESP_OK;
+    char log_buffer[256]; // Buffer for formatted log messages
+
+    /* Enable the accelerometer and gyroscope (CTRL7) */
+    if (qmi8658_write_reg(QMI8658_CTRL7_REG, QMI8658_SENSOR_ENABLE) != ESP_OK) 
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to enable sensors (CTRL7)");
+        web_server_print(log_buffer);
+        return ESP_FAIL;
+    }
+
+    /* A short delay to allow the sensors to stabilize after being enabled */
+    vTaskDelay(pdMS_TO_TICKS(20));
 
     return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
 }
