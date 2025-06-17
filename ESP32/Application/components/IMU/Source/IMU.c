@@ -215,38 +215,23 @@ static esp_err_t qmi8658_init(void)
     
     /* Initialize I2C bus for QMI8658C */
     ret = qmi8658_i2c_init();
-    if (ret != ESP_OK)
-    {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     /* Reset the QMI8658C device */
     ret = qmi8658_reset();
-    if (ret != ESP_OK)
-    {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     /* Verify the device ID */
     ret = qmi8658_verify_device_id();
-    if (ret != ESP_OK)
-    {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     /* Set the configuration for the QMI8658C in IMU mode */
     ret = qmi8658_set_config_for_IMU_mode();
-    if (ret != ESP_OK)
-    {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     /* Enable the accelerometer and gyroscope */
     ret = qmi8658_enable_accel_and_gyro();
-    if (ret != ESP_OK)
-    {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     snprintf(log_buffer, sizeof(log_buffer), "IMU: QMI8658C configured successfully as an IMU.");
     web_server_print(log_buffer);
