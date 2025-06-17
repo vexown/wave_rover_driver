@@ -100,6 +100,16 @@ static i2c_master_dev_handle_t qmi8658_dev_handle = NULL;
 /*******************************************************************************/
 /*                     STATIC FUNCTION DECLARATIONS                            */
 /*******************************************************************************/
+
+/**
+ * @brief Initialize the IMU component.
+ * This function initializes the QMI8658C accelerometer and gyroscope, configures
+ * the I2C bus, and sets up the necessary registers for operation.
+ * 
+ * @return ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t qmi8658_init(void);
+
 /**
  * @brief Write a single byte to a specific register on the QMI8658C.
  *
@@ -133,6 +143,26 @@ static void task_read_qmi8658_data(void* pvParameters);
 /*******************************************************************************/
 
 esp_err_t imu_init(void)
+{
+    esp_err_t init_status = ESP_OK;
+
+    init_status = qmi8658_init();
+    if (init_status != ESP_OK)
+    {
+        return init_status;
+    }
+
+    /* Initialize AK09918 magnetometer */
+    /* TODO */
+    
+    return ESP_OK;
+}
+
+/*******************************************************************************/
+/*                     STATIC FUNCTION DEFINITIONS                             */
+/*******************************************************************************/
+
+static esp_err_t qmi8658_init(void) 
 {
     esp_err_t ret = ESP_OK;
     char log_buffer[256]; // Buffer for formatted log messages
@@ -242,16 +272,9 @@ esp_err_t imu_init(void)
         i2c_master_bus_rm_device(qmi8658_dev_handle);
         return ESP_FAIL;
     }
-    
-    /* Initialize AK09918 magnetometer */
-    /* TODO */
-    
-    return ESP_OK;
-}
 
-/*******************************************************************************/
-/*                     STATIC FUNCTION DEFINITIONS                             */
-/*******************************************************************************/
+    return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
+}
 
 static esp_err_t qmi8658_write_reg(uint8_t reg_addr, uint8_t data) 
 {
