@@ -42,6 +42,20 @@
 #define QMI8658_CTRL7_REG           0x08 // Sensor enable register 
 #define QMI8658_RESET_REG           0x60 // Soft reset register 
 
+/* Register addresses for sensor data (accelerometer and gyroscope) */
+#define QMI8658_REG_AX_L   0x35
+#define QMI8658_REG_AX_H   0x36
+#define QMI8658_REG_AY_L   0x37
+#define QMI8658_REG_AY_H   0x38
+#define QMI8658_REG_AZ_L   0x39
+#define QMI8658_REG_AZ_H   0x3A
+#define QMI8658_REG_GX_L   0x3B
+#define QMI8658_REG_GX_H   0x3C
+#define QMI8658_REG_GY_L   0x3D
+#define QMI8658_REG_GY_H   0x3E
+#define QMI8658_REG_GZ_L   0x3F
+#define QMI8658_REG_GZ_H   0x40
+
 /* Expected Device ID */
 #define QMI8658_DEVICE_ID           0x05 // Value in WHO_AM_I register 
 
