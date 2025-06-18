@@ -184,9 +184,14 @@ static esp_err_t qmi8658_write_reg(uint8_t reg_addr, uint8_t data);
  *
  * @param reg_addr The register address to read from.
  * @param data Pointer to store the read data.
+ * @param data_size The size of the data to read (should be 1 for single byte).
  * @return ESP_OK on success, ESP_FAIL on failure.
+ * 
+ * @note For the burst reads to work correctly, in CTRL1 register, the ADDR_AI bit must be set to 1.
+ *       This allows the device to auto-increment the register address for multi-byte reads.
+ *       The data_size parameter should be set to the number of bytes you want to read.
  */
-static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data);
+static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_size);
 
 /**
  * @brief Task to read data from the QMI8658C accelerometer and gyroscope.
@@ -329,7 +334,7 @@ static esp_err_t qmi8658_verify_device_id(void)
 
     /* Verify the device ID */
     uint8_t chip_id = 0;
-    ret = qmi8658_read_reg(QMI8658_WHO_AM_I_REG, &chip_id);
+    ret = qmi8658_read_reg(QMI8658_WHO_AM_I_REG, &chip_id, 1);
     if (ret != ESP_OK) 
     {
         snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to read WHO_AM_I register");
@@ -406,9 +411,9 @@ static esp_err_t qmi8658_write_reg(uint8_t reg_addr, uint8_t data)
 }
 
 
-static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data) 
+static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_size)
 {
-    return i2c_master_transmit_receive(qmi8658_dev_handle, &reg_addr, 1, data, 1, -1);
+    return i2c_master_transmit_receive(qmi8658_dev_handle, &reg_addr, 1, data, data_size, -1);
 }
 
 
