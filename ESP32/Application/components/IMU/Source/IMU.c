@@ -420,8 +420,11 @@ static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_s
 static void task_read_qmi8658_data(void* pvParameters) 
 {
     /********************* Task Initialization ***************************/ 
-    // TODO: Add variables to store calibration offsets, calculated at startup
-    // float gyro_x_bias = 0.0, gyro_y_bias = 0.0, gyro_z_bias = 0.0;
+    /* Calibration variables */
+    const int CALIBRATION_SAMPLE_COUNT = 40; // This is 4 seconds at 100 ms per sample (TASK_READ_QMI8658_DATA_PERIOD_TICKS)
+    static int calibration_count = 0;
+    static float gyro_x_bias = 0.0f, gyro_y_bias = 0.0f, gyro_z_bias = 0.0f;
+    static bool calibration_values_available = false;
 
     /* Sensitivity values from datasheet for ±8g and ±2048dps */
     const float ACCEL_SENSITIVITY = 4096.0f; // LSB/g for ±8g
@@ -461,11 +464,41 @@ static void task_read_qmi8658_data(void* pvParameters)
             float gy = (float)gyro_y / GYRO_SENSITIVITY;
             float gz = (float)gyro_z / GYRO_SENSITIVITY;
 
-            /* Apply Calibration (Subtract Bias) */
-            // gx -= gyro_x_bias;
-            // gy -= gyro_y_bias;
-            // gz -= gyro_z_bias;
-            // TODO: Apply accelerometer calibration
+            /* Apply gyroscope calibration if the bias values are available, otherwise accumulate them */
+            if (calibration_values_available)
+            {
+                /* Apply Calibration (Substract Bias) */
+                gx -= gyro_x_bias;
+                gy -= gyro_y_bias;
+                gz -= gyro_z_bias;
+            }
+            else
+            {
+                if (calibration_count < CALIBRATION_SAMPLE_COUNT)
+                {
+                    /* Accumulate the gyroscope biases */
+                    gyro_x_bias += gx;
+                    gyro_y_bias += gy;
+                    gyro_z_bias += gz;
+                    calibration_count++;
+
+                    if (calibration_count == 1) 
+                    {
+                        web_server_print("IMU: Starting gyroscope calibration... Please keep the device still.");
+                    }
+                }
+                else // All samples collected
+                {
+                    /* Calculate the average biases based on the collected samples */
+                    gyro_x_bias /= CALIBRATION_SAMPLE_COUNT;
+                    gyro_y_bias /= CALIBRATION_SAMPLE_COUNT;
+                    gyro_z_bias /= CALIBRATION_SAMPLE_COUNT;
+
+                    calibration_values_available = true; 
+                    snprintf(log_buffer, sizeof(log_buffer), "IMU: Gyro calibrated. Bias: [%.2f, %.2f, %.2f]", gyro_x_bias, gyro_y_bias, gyro_z_bias);
+                    web_server_print(log_buffer);
+                }
+            }
 
             /* Filter the data (e.g., Low-Pass Filter) */
             // TODO: Implement a filter for smoother output
