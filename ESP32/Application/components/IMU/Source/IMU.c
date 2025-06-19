@@ -420,13 +420,67 @@ static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_s
 static void task_read_qmi8658_data(void* pvParameters) 
 {
     /********************* Task Initialization ***************************/ 
+    // TODO: Add variables to store calibration offsets, calculated at startup
+    // float gyro_x_bias = 0.0, gyro_y_bias = 0.0, gyro_z_bias = 0.0;
+
+    /* Sensitivity values from datasheet for ±8g and ±2048dps */
+    const float ACCEL_SENSITIVITY = 4096.0f; // LSB/g for ±8g
+    const float GYRO_SENSITIVITY = 16.0f;    // LSB/dps for ±2048dps
+
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
+    /********************* Task Loop ***************************/
     while (1)
     {
-        // TODO: Read sensor data from QMI8658C registers 0x35-0x40 and process it
+        char log_buffer[128]; // Buffer for formatted log messages
+        uint8_t sensor_data_buffer[12];
+        int16_t accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z;
+
+        /* Perform a burst read of accelerometer and gyroscope data 
+           This covers the following QMI8658C registers (0x35 to 0x40):
+               - accel: AX_L, AX_H, AY_L, AY_H, AZ_L, AZ_H,
+               - gyro: GX_L, GX_H, GY_L, GY_H, GZ_L, GZ_H 
+        */
+        esp_err_t read_status = qmi8658_read_reg(QMI8658_REG_AX_L, sensor_data_buffer, sizeof(sensor_data_buffer));
+
+        if (read_status == ESP_OK)
+        {
+            /* Extract accelerometer and gyroscope data and combine the high and low bytes into 16-bit integers */
+            accel_x = (int16_t)((sensor_data_buffer[1] << 8) | sensor_data_buffer[0]);
+            accel_y = (int16_t)((sensor_data_buffer[3] << 8) | sensor_data_buffer[2]);
+            accel_z = (int16_t)((sensor_data_buffer[5] << 8) | sensor_data_buffer[4]);
+            gyro_x  = (int16_t)((sensor_data_buffer[7] << 8) | sensor_data_buffer[6]);
+            gyro_y  = (int16_t)((sensor_data_buffer[9] << 8) | sensor_data_buffer[8]);
+            gyro_z  = (int16_t)((sensor_data_buffer[11] << 8) | sensor_data_buffer[10]);
+
+            /* Convert to Physical Units (g and dps) */
+            float ax = (float)accel_x / ACCEL_SENSITIVITY;
+            float ay = (float)accel_y / ACCEL_SENSITIVITY;
+            float az = (float)accel_z / ACCEL_SENSITIVITY;
+            float gx = (float)gyro_x / GYRO_SENSITIVITY;
+            float gy = (float)gyro_y / GYRO_SENSITIVITY;
+            float gz = (float)gyro_z / GYRO_SENSITIVITY;
+
+            /* Apply Calibration (Subtract Bias) */
+            // gx -= gyro_x_bias;
+            // gy -= gyro_y_bias;
+            // gz -= gyro_z_bias;
+            // TODO: Apply accelerometer calibration
+
+            /* Filter the data (e.g., Low-Pass Filter) */
+            // TODO: Implement a filter for smoother output
+
+            /* --- Step 4: Use the processed data --- */
+            //snprintf(log_buffer, sizeof(log_buffer), "IMU Data - Accel: [%.2f, %.2f, %.2f] g, Gyro: [%.2f, %.2f, %.2f] dps", ax, ay, az, gx, gy, gz);
+            //web_server_print(log_buffer);
+            
+        }
+        else
+        {
+            snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to read sensor data");
+            web_server_print(log_buffer);
+        }
 
         vTaskDelayUntil(&xLastWakeTime, TASK_READ_QMI8658_DATA_PERIOD_TICKS); // Task should execute periodically, precisely (hence the use of vTaskDelayUntil)
     }
-
 }
