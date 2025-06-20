@@ -222,6 +222,18 @@ static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_s
 static esp_err_t qmi8658_get_sensor_data(imu_sensor_data_t *sensor_data);
 
 /**
+ * @brief Calibrate the gyroscope data of the QMI8658C.
+ * This function applies calibration offsets to the gyroscope data.
+ * Calibration data is obtained during first few seconds of operation. Robot should be stationary during this time.
+ *
+ * @param sensor_data Pointer to an imu_sensor_data_t structure containing the gyroscope data to be calibrated.
+ * @return ESP_OK on success, or an ESP_ERR_INVALID_ARG if the sensor_data pointer is NULL.
+ * 
+ * @note This function needs to be called on every read gyro data, it's not a one-time calibration.
+ */
+static esp_err_t qmi8658_calibrate_gyro_data(imu_sensor_data_t *sensor_data);
+
+/**
  * @brief Task to read data from the QMI8658C accelerometer and gyroscope.
  * This task will periodically read sensor data and process it.
  *
@@ -490,17 +502,65 @@ static esp_err_t qmi8658_get_sensor_data(imu_sensor_data_t *sensor_data)
     return ESP_OK; // Return ESP_OK to indicate success, in case of failure the function returns as soon as it encounters an error
 }
 
-
-static void task_read_qmi8658_data(void* pvParameters) 
+static esp_err_t qmi8658_calibrate_gyro_data(imu_sensor_data_t *sensor_data)
 {
-    /********************* Task Initialization ***************************/ 
-    char log_buffer[128]; // Buffer for formatted log messages
+    /* Input validation */
+    if(sensor_data == NULL) 
+    {
+        web_server_print("IMU: Invalid sensor data pointer for calibration");
+        return ESP_ERR_INVALID_ARG;
+    }
 
+    char log_buffer[128]; // Buffer for formatted log messages
     /* Calibration variables */
     const int CALIBRATION_SAMPLE_COUNT = 40; // This is 4 seconds at 100 ms per sample (TASK_READ_QMI8658_DATA_PERIOD_TICKS)
     static int calibration_count = 0;
     static float gyro_x_bias = 0.0f, gyro_y_bias = 0.0f, gyro_z_bias = 0.0f;
     static bool calibration_values_available = false;
+
+    /* Apply gyroscope calibration if the bias values are available, otherwise accumulate them */
+    if (calibration_values_available)
+    {
+        /* Apply Calibration (Substract Bias) */
+        sensor_data->gx -= gyro_x_bias;
+        sensor_data->gy -= gyro_y_bias;
+        sensor_data->gz -= gyro_z_bias;
+    }
+    else
+    {
+        if (calibration_count < CALIBRATION_SAMPLE_COUNT)
+        {
+            /* Accumulate the gyroscope biases */
+            gyro_x_bias += sensor_data->gx;
+            gyro_y_bias += sensor_data->gy;
+            gyro_z_bias += sensor_data->gz;
+            calibration_count++;
+
+            if (calibration_count == 1) 
+            {
+                web_server_print("IMU: Starting gyroscope calibration... Please keep the device still.");
+            }
+        }
+        else // All samples collected
+        {
+            /* Calculate the average biases based on the collected samples */
+            gyro_x_bias /= CALIBRATION_SAMPLE_COUNT;
+            gyro_y_bias /= CALIBRATION_SAMPLE_COUNT;
+            gyro_z_bias /= CALIBRATION_SAMPLE_COUNT;
+
+            calibration_values_available = true; 
+            snprintf(log_buffer, sizeof(log_buffer), "IMU: Gyro calibrated. Bias: [%.2f, %.2f, %.2f]", gyro_x_bias, gyro_y_bias, gyro_z_bias);
+            web_server_print(log_buffer);
+        }
+    }
+
+    return ESP_OK; // Return ESP_OK to indicate success, in case of failure the function returns as soon as it encounters an error
+}
+
+static void task_read_qmi8658_data(void* pvParameters) 
+{
+    /********************* Task Initialization ***************************/ 
+    char log_buffer[128]; // Buffer for formatted log messages
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
@@ -514,40 +574,10 @@ static void task_read_qmi8658_data(void* pvParameters)
 
         if (sensor_status == ESP_OK)
         {
-            /* Apply gyroscope calibration if the bias values are available, otherwise accumulate them */
-            if (calibration_values_available)
+            esp_err_t cal_status = qmi8658_calibrate_gyro_data(&sensor_data);
+            if (cal_status != ESP_OK)
             {
-                /* Apply Calibration (Substract Bias) */
-                sensor_data.gx -= gyro_x_bias;
-                sensor_data.gy -= gyro_y_bias;
-                sensor_data.gz -= gyro_z_bias;
-            }
-            else
-            {
-                if (calibration_count < CALIBRATION_SAMPLE_COUNT)
-                {
-                    /* Accumulate the gyroscope biases */
-                    gyro_x_bias += sensor_data.gx;
-                    gyro_y_bias += sensor_data.gy;
-                    gyro_z_bias += sensor_data.gz;
-                    calibration_count++;
-
-                    if (calibration_count == 1) 
-                    {
-                        web_server_print("IMU: Starting gyroscope calibration... Please keep the device still.");
-                    }
-                }
-                else // All samples collected
-                {
-                    /* Calculate the average biases based on the collected samples */
-                    gyro_x_bias /= CALIBRATION_SAMPLE_COUNT;
-                    gyro_y_bias /= CALIBRATION_SAMPLE_COUNT;
-                    gyro_z_bias /= CALIBRATION_SAMPLE_COUNT;
-
-                    calibration_values_available = true; 
-                    snprintf(log_buffer, sizeof(log_buffer), "IMU: Gyro calibrated. Bias: [%.2f, %.2f, %.2f]", gyro_x_bias, gyro_y_bias, gyro_z_bias);
-                    web_server_print(log_buffer);
-                }
+                web_server_print("IMU: Failed to calibrate gyroscope data");
             }
 
             /* Filter the data (e.g., Low-Pass Filter) */
@@ -558,7 +588,6 @@ static void task_read_qmi8658_data(void* pvParameters)
                      sensor_data.ax, sensor_data.ay, sensor_data.az,
                      sensor_data.gx, sensor_data.gy, sensor_data.gz);
             web_server_print(log_buffer); */
-            
         }
         else
         {
