@@ -494,6 +494,8 @@ static esp_err_t qmi8658_get_sensor_data(imu_sensor_data_t *sensor_data)
 static void task_read_qmi8658_data(void* pvParameters) 
 {
     /********************* Task Initialization ***************************/ 
+    char log_buffer[128]; // Buffer for formatted log messages
+
     /* Calibration variables */
     const int CALIBRATION_SAMPLE_COUNT = 40; // This is 4 seconds at 100 ms per sample (TASK_READ_QMI8658_DATA_PERIOD_TICKS)
     static int calibration_count = 0;
@@ -505,7 +507,6 @@ static void task_read_qmi8658_data(void* pvParameters)
     /********************* Task Loop ***************************/
     while (1)
     {
-        char log_buffer[128]; // Buffer for formatted log messages
         static imu_sensor_data_t sensor_data;
 
         /* Acquire sensor data from QMI8658C */
