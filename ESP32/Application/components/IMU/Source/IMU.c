@@ -213,9 +213,11 @@ static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_s
  * @brief Get sensor data from the QMI8658C accelerometer and gyroscope.
  * This function reads the sensor data registers and converts the raw values
  * into physical units (g for accelerometer, dps for gyroscope).
+ * 
+ * @param sensor_data Pointer to an imu_sensor_data_t structure to store the sensor data.
  *
-
- * @return ESP_OK on success, or an error code on failure.
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if the sensor_data pointer is NULL, or
+ *         specific error code from qmi8658_read_reg function.
  */
 static esp_err_t qmi8658_get_sensor_data(imu_sensor_data_t *sensor_data);
 
