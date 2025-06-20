@@ -111,6 +111,10 @@
 /* I2C device handle for the sensor */
 static i2c_master_dev_handle_t qmi8658_dev_handle = NULL;
 
+/* Sensitivity values from datasheet for ±8g and ±2048dps */
+static const float ACCEL_SENSITIVITY = 4096.0f; // LSB/g for ±8g
+static const float GYRO_SENSITIVITY = 16.0f;    // LSB/dps for ±2048dps
+
 /*******************************************************************************/
 /*                     STATIC FUNCTION DECLARATIONS                            */
 /*******************************************************************************/
@@ -192,6 +196,21 @@ static esp_err_t qmi8658_write_reg(uint8_t reg_addr, uint8_t data);
  *       The data_size parameter should be set to the number of bytes you want to read.
  */
 static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_size);
+
+/**
+ * @brief Get sensor data from the QMI8658C accelerometer and gyroscope.
+ * This function reads the sensor data registers and converts the raw values
+ * into physical units (g for accelerometer, dps for gyroscope).
+ *
+ * @param ax Pointer to store the X-axis accelerometer value.
+ * @param ay Pointer to store the Y-axis accelerometer value.
+ * @param az Pointer to store the Z-axis accelerometer value.
+ * @param gx Pointer to store the X-axis gyroscope value.
+ * @param gy Pointer to store the Y-axis gyroscope value.
+ * @param gz Pointer to store the Z-axis gyroscope value.
+ * @return ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t qmi8658_get_sensor_data(float *ax, float *ay, float *az, float *gx, float *gy, float *gz);
 
 /**
  * @brief Task to read data from the QMI8658C accelerometer and gyroscope.
@@ -417,6 +436,45 @@ static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_s
 }
 
 
+static esp_err_t qmi8658_get_sensor_data(float *ax, float *ay, float *az, float *gx, float *gy, float *gz)
+{
+    uint8_t sensor_data_buffer[12] = {0};
+    int16_t accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z;
+
+    /* Perform a burst read of accelerometer and gyroscope data 
+        This covers the following QMI8658C registers (0x35 to 0x40):
+            - accel: AX_L, AX_H, AY_L, AY_H, AZ_L, AZ_H,
+            - gyro: GX_L, GX_H, GY_L, GY_H, GZ_L, GZ_H */
+    esp_err_t read_status = qmi8658_read_reg(QMI8658_REG_AX_L, sensor_data_buffer, sizeof(sensor_data_buffer));
+
+    if (read_status != ESP_OK) 
+    {
+        web_server_print("IMU: Failed to read sensor data from QMI8658C");
+        return read_status;
+    }
+    else
+    {
+        /* Extract accelerometer and gyroscope data and combine the high and low bytes into 16-bit integers */
+        accel_x = (int16_t)((sensor_data_buffer[1] << 8) | sensor_data_buffer[0]);
+        accel_y = (int16_t)((sensor_data_buffer[3] << 8) | sensor_data_buffer[2]);
+        accel_z = (int16_t)((sensor_data_buffer[5] << 8) | sensor_data_buffer[4]);
+        gyro_x  = (int16_t)((sensor_data_buffer[7] << 8) | sensor_data_buffer[6]);
+        gyro_y  = (int16_t)((sensor_data_buffer[9] << 8) | sensor_data_buffer[8]);
+        gyro_z  = (int16_t)((sensor_data_buffer[11] << 8) | sensor_data_buffer[10]);
+
+        /* Convert to Physical Units (g and dps) */
+        float ax = (float)accel_x / ACCEL_SENSITIVITY;
+        float ay = (float)accel_y / ACCEL_SENSITIVITY;
+        float az = (float)accel_z / ACCEL_SENSITIVITY;
+        float gx = (float)gyro_x / GYRO_SENSITIVITY;
+        float gy = (float)gyro_y / GYRO_SENSITIVITY;
+        float gz = (float)gyro_z / GYRO_SENSITIVITY;
+    }
+
+    return ESP_OK; // Return ESP_OK to indicate success, in case of failure the function returns as soon as it encounters an error
+}
+
+
 static void task_read_qmi8658_data(void* pvParameters) 
 {
     /********************* Task Initialization ***************************/ 
@@ -426,9 +484,7 @@ static void task_read_qmi8658_data(void* pvParameters)
     static float gyro_x_bias = 0.0f, gyro_y_bias = 0.0f, gyro_z_bias = 0.0f;
     static bool calibration_values_available = false;
 
-    /* Sensitivity values from datasheet for ±8g and ±2048dps */
-    const float ACCEL_SENSITIVITY = 4096.0f; // LSB/g for ±8g
-    const float GYRO_SENSITIVITY = 16.0f;    // LSB/dps for ±2048dps
+
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
@@ -436,34 +492,16 @@ static void task_read_qmi8658_data(void* pvParameters)
     while (1)
     {
         char log_buffer[128]; // Buffer for formatted log messages
-        uint8_t sensor_data_buffer[12];
-        int16_t accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z;
 
-        /* Perform a burst read of accelerometer and gyroscope data 
-           This covers the following QMI8658C registers (0x35 to 0x40):
-               - accel: AX_L, AX_H, AY_L, AY_H, AZ_L, AZ_H,
-               - gyro: GX_L, GX_H, GY_L, GY_H, GZ_L, GZ_H 
-        */
-        esp_err_t read_status = qmi8658_read_reg(QMI8658_REG_AX_L, sensor_data_buffer, sizeof(sensor_data_buffer));
+        /* Declare variables to hold sensor data */
+        float ax, ay, az; // Accelerometer data in g
+        float gx, gy, gz; // Gyroscope data in dps
 
-        if (read_status == ESP_OK)
+        /* Acquire sensor data from QMI8658C */
+        esp_err_t sensor_status = qmi8658_get_sensor_data(&ax, &ay, &az, &gx, &gy, &gz);
+
+        if (sensor_status == ESP_OK)
         {
-            /* Extract accelerometer and gyroscope data and combine the high and low bytes into 16-bit integers */
-            accel_x = (int16_t)((sensor_data_buffer[1] << 8) | sensor_data_buffer[0]);
-            accel_y = (int16_t)((sensor_data_buffer[3] << 8) | sensor_data_buffer[2]);
-            accel_z = (int16_t)((sensor_data_buffer[5] << 8) | sensor_data_buffer[4]);
-            gyro_x  = (int16_t)((sensor_data_buffer[7] << 8) | sensor_data_buffer[6]);
-            gyro_y  = (int16_t)((sensor_data_buffer[9] << 8) | sensor_data_buffer[8]);
-            gyro_z  = (int16_t)((sensor_data_buffer[11] << 8) | sensor_data_buffer[10]);
-
-            /* Convert to Physical Units (g and dps) */
-            float ax = (float)accel_x / ACCEL_SENSITIVITY;
-            float ay = (float)accel_y / ACCEL_SENSITIVITY;
-            float az = (float)accel_z / ACCEL_SENSITIVITY;
-            float gx = (float)gyro_x / GYRO_SENSITIVITY;
-            float gy = (float)gyro_y / GYRO_SENSITIVITY;
-            float gz = (float)gyro_z / GYRO_SENSITIVITY;
-
             /* Apply gyroscope calibration if the bias values are available, otherwise accumulate them */
             if (calibration_values_available)
             {
