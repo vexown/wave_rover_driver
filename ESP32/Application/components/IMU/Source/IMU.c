@@ -87,6 +87,18 @@
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
 
+/* Data structure to hold IMU sensor data */
+typedef struct
+{
+    float ax; // Accelerometer X-axis value in g
+    float ay; // Accelerometer Y-axis value in g
+    float az; // Accelerometer Z-axis value in g
+    float gx; // Gyroscope X-axis value in dps
+    float gy; // Gyroscope Y-axis value in dps
+    float gz; // Gyroscope Z-axis value in dps
+} imu_sensor_data_t;
+
+
 /*******************************************************************************/
 /*                     GLOBAL VARIABLES DECLARATIONS                           */
 /*******************************************************************************/
@@ -202,15 +214,10 @@ static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_s
  * This function reads the sensor data registers and converts the raw values
  * into physical units (g for accelerometer, dps for gyroscope).
  *
- * @param ax Pointer to store the X-axis accelerometer value.
- * @param ay Pointer to store the Y-axis accelerometer value.
- * @param az Pointer to store the Z-axis accelerometer value.
- * @param gx Pointer to store the X-axis gyroscope value.
- * @param gy Pointer to store the Y-axis gyroscope value.
- * @param gz Pointer to store the Z-axis gyroscope value.
+
  * @return ESP_OK on success, or an error code on failure.
  */
-static esp_err_t qmi8658_get_sensor_data(float *ax, float *ay, float *az, float *gx, float *gy, float *gz);
+static esp_err_t qmi8658_get_sensor_data(imu_sensor_data_t *sensor_data);
 
 /**
  * @brief Task to read data from the QMI8658C accelerometer and gyroscope.
@@ -436,8 +443,15 @@ static esp_err_t qmi8658_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_s
 }
 
 
-static esp_err_t qmi8658_get_sensor_data(float *ax, float *ay, float *az, float *gx, float *gy, float *gz)
+static esp_err_t qmi8658_get_sensor_data(imu_sensor_data_t *sensor_data)
 {
+    /* Input validation */
+    if(sensor_data == NULL) 
+    {
+        web_server_print("IMU: Invalid sensor data pointer");
+        return ESP_ERR_INVALID_ARG;
+    }
+
     uint8_t sensor_data_buffer[12] = {0};
     int16_t accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z;
 
@@ -462,13 +476,13 @@ static esp_err_t qmi8658_get_sensor_data(float *ax, float *ay, float *az, float 
         gyro_y  = (int16_t)((sensor_data_buffer[9] << 8) | sensor_data_buffer[8]);
         gyro_z  = (int16_t)((sensor_data_buffer[11] << 8) | sensor_data_buffer[10]);
 
-        /* Convert to Physical Units (g and dps) */
-        float ax = (float)accel_x / ACCEL_SENSITIVITY;
-        float ay = (float)accel_y / ACCEL_SENSITIVITY;
-        float az = (float)accel_z / ACCEL_SENSITIVITY;
-        float gx = (float)gyro_x / GYRO_SENSITIVITY;
-        float gy = (float)gyro_y / GYRO_SENSITIVITY;
-        float gz = (float)gyro_z / GYRO_SENSITIVITY;
+        /* Convert to Physical Units (g and dps) and store in sensor_data structure */
+        sensor_data->ax = (float)accel_x / ACCEL_SENSITIVITY;
+        sensor_data->ay = (float)accel_y / ACCEL_SENSITIVITY;
+        sensor_data->az = (float)accel_z / ACCEL_SENSITIVITY;
+        sensor_data->gx = (float)gyro_x / GYRO_SENSITIVITY;
+        sensor_data->gy = (float)gyro_y / GYRO_SENSITIVITY;
+        sensor_data->gz = (float)gyro_z / GYRO_SENSITIVITY;
     }
 
     return ESP_OK; // Return ESP_OK to indicate success, in case of failure the function returns as soon as it encounters an error
@@ -484,21 +498,16 @@ static void task_read_qmi8658_data(void* pvParameters)
     static float gyro_x_bias = 0.0f, gyro_y_bias = 0.0f, gyro_z_bias = 0.0f;
     static bool calibration_values_available = false;
 
-
-
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
     /********************* Task Loop ***************************/
     while (1)
     {
         char log_buffer[128]; // Buffer for formatted log messages
-
-        /* Declare variables to hold sensor data */
-        float ax, ay, az; // Accelerometer data in g
-        float gx, gy, gz; // Gyroscope data in dps
+        static imu_sensor_data_t sensor_data;
 
         /* Acquire sensor data from QMI8658C */
-        esp_err_t sensor_status = qmi8658_get_sensor_data(&ax, &ay, &az, &gx, &gy, &gz);
+        esp_err_t sensor_status = qmi8658_get_sensor_data(&sensor_data);
 
         if (sensor_status == ESP_OK)
         {
@@ -506,18 +515,18 @@ static void task_read_qmi8658_data(void* pvParameters)
             if (calibration_values_available)
             {
                 /* Apply Calibration (Substract Bias) */
-                gx -= gyro_x_bias;
-                gy -= gyro_y_bias;
-                gz -= gyro_z_bias;
+                sensor_data.gx -= gyro_x_bias;
+                sensor_data.gy -= gyro_y_bias;
+                sensor_data.gz -= gyro_z_bias;
             }
             else
             {
                 if (calibration_count < CALIBRATION_SAMPLE_COUNT)
                 {
                     /* Accumulate the gyroscope biases */
-                    gyro_x_bias += gx;
-                    gyro_y_bias += gy;
-                    gyro_z_bias += gz;
+                    gyro_x_bias += sensor_data.gx;
+                    gyro_y_bias += sensor_data.gy;
+                    gyro_z_bias += sensor_data.gz;
                     calibration_count++;
 
                     if (calibration_count == 1) 
@@ -542,8 +551,10 @@ static void task_read_qmi8658_data(void* pvParameters)
             // TODO: Implement a filter for smoother output
 
             /* --- Step 4: Use the processed data --- */
-            //snprintf(log_buffer, sizeof(log_buffer), "IMU Data - Accel: [%.2f, %.2f, %.2f] g, Gyro: [%.2f, %.2f, %.2f] dps", ax, ay, az, gx, gy, gz);
-            //web_server_print(log_buffer);
+            /* snprintf(log_buffer, sizeof(log_buffer), "IMU Data - Accel: [%.2f, %.2f, %.2f] g, Gyro: [%.2f, %.2f, %.2f] dps", 
+                     sensor_data.ax, sensor_data.ay, sensor_data.az,
+                     sensor_data.gx, sensor_data.gy, sensor_data.gz);
+            web_server_print(log_buffer); */
             
         }
         else
