@@ -386,7 +386,6 @@ void web_server_print(const char *message)
     else
     {
         /* Not enough space. Clear the buffer and add the new message. */
-        ESP_LOGW(TAG, "Web server print buffer full. Clearing and adding new message.");
         /* Check if the new message itself fits in the buffer */
         if (message_to_add_len + 1 > WEBSERVER_PRINT_MAX_LEN)
         {
