@@ -200,6 +200,16 @@ static esp_err_t ota_get_handler(httpd_req_t *req);
 static esp_err_t print_get_handler(httpd_req_t *req);
 
 /**
+ * @brief HTTP GET handler for the "/reset" URI.
+ *
+ * @details Initiates a software reset of the device.
+ *
+ * @param req Pointer to the HTTP request structure.
+ * @return esp_err_t ESP_OK on success.
+ */
+static esp_err_t reset_get_handler(httpd_req_t *req);
+
+/**
  * @brief Starts the HTTP web server.
  *
  * @details Initializes the HTTP server with default configuration and registers
@@ -274,6 +284,14 @@ static const httpd_uri_t uri_status =
     .uri       = "/print",
     .method    = HTTP_GET,
     .handler   = print_get_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t uri_reset =
+{
+    .uri       = "/reset",
+    .method    = HTTP_GET,
+    .handler   = reset_get_handler,
     .user_ctx  = NULL
 };
 
@@ -767,6 +785,7 @@ static esp_err_t start_webserver(void)
         httpd_register_uri_handler(server, &uri_control);
         httpd_register_uri_handler(server, &uri_ota);
         httpd_register_uri_handler(server, &uri_status);
+        httpd_register_uri_handler(server, &uri_reset);
 
         return ESP_OK;
     }
@@ -988,6 +1007,22 @@ static esp_err_t print_get_handler(httpd_req_t *req)
     httpd_resp_send(req, web_server_print_buffer, HTTPD_RESP_USE_STRLEN);
     
     return ESP_OK;
+}
+
+static esp_err_t reset_get_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Received reset request");
+    
+    /* Send a response back to the client indicating the reset is being performed */
+    httpd_resp_send(req, "Resetting device...", HTTPD_RESP_USE_STRLEN);
+
+    /* Short delay to allow the HTTP response to be sent before reset */
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    /* Perform the reset */
+    esp_restart(); // This will reboot the device immediately
+
+    return ESP_OK; // Note: Code here will not be reached
 }
 
 

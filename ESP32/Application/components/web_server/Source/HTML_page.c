@@ -303,6 +303,9 @@ const char *HTML_PAGE = R"rawliteral(
         </div>
     
         <button id="btn-ota" class="btn ota">Update Firmware</button>
+        <br>
+        <button id="btn-reset" class="btn ota" style="margin-top: 10px;" onclick="resetDevice()">Soft Reset</button>
+
     </div>
     
     <div id="status">Initializing systems...</div>
@@ -391,7 +394,21 @@ const char *HTML_PAGE = R"rawliteral(
                 });
             }
         }
-        
+
+        // --- Reset Function ---
+        function resetDevice() {
+            console.log("Sending reset command...");
+            if (confirm("Are you sure you want to reset the device?")) {
+                fetch('/reset')
+                    .then(response => response.text())
+                    .then(data => {
+                        console.log(data);
+                        document.body.innerHTML = '<h1>Device is resetting... Please wait. You may need to refresh the page manually.</h1>';
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
+        }
+            
         // --- Status Update Functions ---
         function updateStatus() {
             fetch('/print')
