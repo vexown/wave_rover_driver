@@ -98,19 +98,65 @@ static void init_components(void);
  */
 void app_main(void)
 {
+    /********************* Task Initialization ***************************/ 
     /* Initialize the components */
     init_components();
 
     /* Print system information to the console, OLED, and web server */
     print_system_info();
 
-    LOG_TO_RPI("Entering idle loop. Connect to WiFi and control via web server.");
+    /* Variables for the stability check */
+    int stable_cycles_count = 0;
+    const int required_stable_cycles = 3; // Wait for 3 cycles (6 seconds)
+    bool app_validated = false;
+    bool is_pending_verification = false;
+    esp_ota_img_states_t ota_state;
 
-    /* Task loop */
+    /* Check the state of the running partition */
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_err_t err = esp_ota_get_state_partition(running, &ota_state);
+    if (err == ESP_OK) 
+    {
+        if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) 
+        {
+            LOG_TO_RPI("Firmware is pending verification. Starting stability check.\n");
+            is_pending_verification = true;
+        }
+        else
+        {
+            LOG_TO_RPI("Firmware is already verified or not pending verification. Current state: %d\n", ota_state);
+        }
+    }
+    else 
+    {
+        LOG_TO_RPI("Failed to get OTA state for running partition: %s\n", esp_err_to_name(err));
+    }
+
+    /********************* Task Loop ********************************/
     while(1) 
     {
-        LOG_TO_RPI("app_main(), just hanging around...\n");
-
+        /* If we're running a new OTA updated application, we perform a stability check to make sure it's not crashing
+         *      - If the application is stable for a certain number of cycles, we mark it as valid.
+         *      - If the app crashes, the bootloader will automatically revert to the previous version. */
+        if (is_pending_verification && !app_validated) 
+        {
+            stable_cycles_count++;
+            LOG_TO_RPI("Stability check: cycle %d of %d\n", stable_cycles_count, required_stable_cycles);
+            if (stable_cycles_count >= required_stable_cycles) 
+            {
+                LOG_TO_RPI("Application has been stable, marking as valid.\n");
+                esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+                if (err == ESP_OK) 
+                {
+                    LOG_TO_RPI("App marked as valid. Rollback is now cancelled.\n");
+                } 
+                else 
+                {
+                    LOG_TO_RPI("Failed to mark app as valid: %s\n", esp_err_to_name(err));
+                }
+                app_validated = true; // Once the app is marked as valid, we don't need to perform stability checks anymore
+            }
+        }
         vTaskDelay(pdMS_TO_TICKS(2000)); // Move into the blocked state allowing other tasks to run
     }
 }

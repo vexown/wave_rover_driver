@@ -19,7 +19,9 @@
 # - INCLUDE_DIRS: Specifies directories for header files (empty in this case)
 idf_component_register(SRCS "app_main.c"
                        INCLUDE_DIRS ""
-                       REQUIRES spi_flash 
+                       REQUIRES spi_flash
+                                nvs_flash
+                                app_update
                                 esp_common
                                 Common
                                 motor_control
