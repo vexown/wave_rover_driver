@@ -1,8 +1,12 @@
 /*******************************************************************************/
 /*                                INCLUDES                                     */
 /*******************************************************************************/
+
+/* C Standard Libraries */
 #include <stdio.h>
 #include <inttypes.h>
+
+/* ESP-IDF includes */
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -10,7 +14,12 @@
 #include "esp_flash.h"
 #include "esp_system.h"
 #include "esp_log.h"
-#include <esp_wifi.h>
+#include "esp_wifi.h"
+#include "nvs_flash.h"
+#include "esp_flash_partitions.h"
+#include "esp_ota_ops.h"
+
+/* Project includes */
 #include "Common.h"
 #include "motor_control.h"
 #include "oled_display.h"
