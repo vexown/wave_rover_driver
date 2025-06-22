@@ -33,6 +33,8 @@
 /*******************************************************************************/
 #define FW_VERSION "01.09" // Firmware version (MAJOR.MINOR)
 
+#define TASK_APP_MAIN_PERIOD_TICKS pdMS_TO_TICKS(2000)
+
 /*******************************************************************************/
 /*                               DATA TYPES                                    */
 /*******************************************************************************/
@@ -107,7 +109,7 @@ void app_main(void)
 
     /* Variables for the stability check */
     int stable_cycles_count = 0;
-    const int required_stable_cycles = 3; // Wait for 3 cycles (6 seconds)
+    const int required_stable_cycles = 3; // Wait for 3 cycles (3 * TASK_APP_MAIN_PERIOD_TICKS)
     bool app_validated = false;
     bool is_pending_verification = false;
     esp_ota_img_states_t ota_state;
@@ -157,7 +159,7 @@ void app_main(void)
                 app_validated = true; // Once the app is marked as valid, we don't need to perform stability checks anymore
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(2000)); // Move into the blocked state allowing other tasks to run
+        vTaskDelay(TASK_APP_MAIN_PERIOD_TICKS); // Move into the blocked state allowing other tasks to run
     }
 }
 
