@@ -39,6 +39,7 @@
 #define QMI8658_CTRL1_REG           0x02 // Serial interface and sensor enable settings 
 #define QMI8658_CTRL2_REG           0x03 // Accelerometer settings 
 #define QMI8658_CTRL3_REG           0x04 // Gyroscope settings 
+#define QMI8658_CTRL5_REG           0x06 // Low pass filter settings
 #define QMI8658_CTRL7_REG           0x08 // Sensor enable register 
 #define QMI8658_RESET_REG           0x60 // Soft reset register 
 
@@ -68,6 +69,23 @@
  * gFS<2:0> = 111 for ±2048 dps 
  * gODR<3:0> = 0011 for 940 Hz */ 
 #define QMI8658_GYRO_CONFIG         0b01110011
+
+/* CTRL5: Enable and configure Low-Pass Filters for Accelerometer and Gyroscope
+ * ODR means Output Data Rate - it's the number of times per second the sensor
+ * provides a new measurement (Hz). Based on CTRL2 and CTRL3 settings, the ODR is 940 Hz.
+ * Based on that, the Low-Pass Filter (LPF) bandwidth (BW) is set as a percentage of the ODR.
+ * BW is essentially the cutoff frequency of the filter. This means that if for example
+ * we use a MODE with a BW of 13.37% of ODR, the cutoff frequency will be 13.37% of 940 Hz (125.7 Hz)
+ *
+ * Stage 1 (LPF): The physical signal goes through the filter first. This is where noise and unwanted high frequencies are removed.
+ * Stage 2 (ODR): The now-clean signal gets sampled at a specific rate (the ODR) to be turned into the digital numbers your program reads.
+ * 
+ * gLPF_EN<4> = 1 (Enable Gyro LPF)
+ * gLPF_MODE<6:5> = 11 (BW = 13.37% of ODR)
+ * aLPF_EN<0> = 1 (Enable Accel LPF)
+ * aLPF_MODE<2:1> = 11 (BW = 13.37% of ODR)
+ */
+#define QMI8658_FILTER_CONFIG       0b01110111
 
 /* CTRL1: Enable auto-increment for I2C address for burst reads
  * ADDR_AI = 1  */
@@ -413,6 +431,13 @@ static esp_err_t qmi8658_set_config_for_IMU_mode(void)
         web_server_print(log_buffer);
         return ESP_FAIL;
     }
+    /* Configure Low-Pass Filters for Accelerometer and Gyroscope (CTRL5) */
+    if (qmi8658_write_reg(QMI8658_CTRL5_REG, QMI8658_FILTER_CONFIG) != ESP_OK) 
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to configure filters (CTRL5)");
+        web_server_print(log_buffer);
+        return ESP_FAIL;
+    }
     /* Configure address auto-increment for multi-byte reads (CTRL1) */
     if (qmi8658_write_reg(QMI8658_CTRL1_REG, QMI8658_CTRL1_CONFIG) != ESP_OK) 
     {
@@ -579,9 +604,6 @@ static void task_read_qmi8658_data(void* pvParameters)
             {
                 web_server_print("IMU: Failed to calibrate gyroscope data");
             }
-
-            /* Filter the data (e.g., Low-Pass Filter) */
-            // TODO: Implement a filter for smoother output
 
             /* --- Step 4: Use the processed data --- */
             /* snprintf(log_buffer, sizeof(log_buffer), "IMU Data - Accel: [%.2f, %.2f, %.2f] g, Gyro: [%.2f, %.2f, %.2f] dps", 
