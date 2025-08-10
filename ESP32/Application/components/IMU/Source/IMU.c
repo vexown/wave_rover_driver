@@ -606,10 +606,9 @@ static void task_read_qmi8658_data(void* pvParameters)
             }
 
             /* --- Step 4: Use the processed data --- */
-            /* snprintf(log_buffer, sizeof(log_buffer), "IMU Data - Accel: [%.2f, %.2f, %.2f] g, Gyro: [%.2f, %.2f, %.2f] dps", 
-                     sensor_data.ax, sensor_data.ay, sensor_data.az,
-                     sensor_data.gx, sensor_data.gy, sensor_data.gz);
-            web_server_print(log_buffer); */
+            /* Broadcast live IMU data over WebSocket */
+            web_server_ws_broadcast_imu(sensor_data.ax, sensor_data.ay, sensor_data.az,
+                                        sensor_data.gx, sensor_data.gy, sensor_data.gz);
         }
         else
         {

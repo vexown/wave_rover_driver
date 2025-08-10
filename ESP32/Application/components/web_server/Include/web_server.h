@@ -79,5 +79,7 @@ esp_err_t web_server_get_ip(char *ip_buffer, size_t buffer_size);
  */
 bool web_server_is_connected(void);
 
+void web_server_ws_broadcast_imu(float ax, float ay, float az, float gx, float gy, float gz);
+
 
 #endif /* WEB_SERVER_H */

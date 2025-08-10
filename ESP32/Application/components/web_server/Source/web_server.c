@@ -66,6 +66,9 @@
 /* Max length for the message to be displayed on the web page */
 #define WEBSERVER_PRINT_MAX_LEN 512 // in bytes
 
+/* WebSocket macros */
+#define WS_MAX_CLIENTS 4
+
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
@@ -220,6 +223,15 @@ static esp_err_t reset_get_handler(httpd_req_t *req);
  */
 static esp_err_t start_webserver(void);
 
+
+static esp_err_t ws_handler(httpd_req_t *req);
+
+
+static void ws_add_client(int sockfd);
+
+
+static void ws_remove_client(int sockfd);
+
 /*******************************************************************************/
 /*                             STATIC VARIABLES                                */
 /*******************************************************************************/
@@ -242,6 +254,10 @@ static char web_server_print_buffer[WEBSERVER_PRINT_MAX_LEN] = "Initializing..."
 /* Sequence Number Handling */
 static uint32_t lastProcessedSequenceNumber = 0; // Track the last processed sequence number
 static SemaphoreHandle_t sequenceMutex = NULL; // Mutex to protect sequence number access
+
+/* WebSocket client tracking */
+static int ws_client_fds[WS_MAX_CLIENTS] = { -1, -1, -1, -1 };
+static SemaphoreHandle_t ws_clients_mutex = NULL;
 
 /**
  * @brief URI Definitions
@@ -295,6 +311,16 @@ static const httpd_uri_t uri_reset =
     .user_ctx  = NULL
 };
 
+static const httpd_uri_t uri_ws =
+{
+    .uri                      = "/ws",
+    .method                   = HTTP_GET,
+    .handler                  = ws_handler,
+    .user_ctx                 = NULL,
+    .is_websocket             = true,
+    .handle_ws_control_frames = true,
+};
+
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
@@ -304,9 +330,10 @@ esp_err_t web_server_init(void)
     esp_err_t ret = ESP_OK;
 
     sequenceMutex = xSemaphoreCreateMutex();
-    if (sequenceMutex == NULL) 
+    ws_clients_mutex = xSemaphoreCreateMutex();
+    if (sequenceMutex == NULL || ws_clients_mutex == NULL)
     {
-        ESP_LOGE(TAG, "Failed to create sequence mutex");
+        ESP_LOGE(TAG, "Failed to create mutex");
         return ESP_FAIL;
     }
 
@@ -456,6 +483,53 @@ esp_err_t web_server_get_ip(char *ip_buffer, size_t buffer_size)
         ip_buffer[buffer_size - 1] = '\0';
 
         return ESP_FAIL;
+    }
+}
+
+/* Broadcast IMU JSON to all connected WS clients */
+void web_server_ws_broadcast_imu(float ax, float ay, float az, float gx, float gy, float gz)
+{
+    if (server == NULL) return;
+
+    char msg[160];
+    int n = snprintf(msg, sizeof(msg),
+                     "{\"type\":\"imu\",\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,"
+                     "\"gx\":%.2f,\"gy\":%.2f,\"gz\":%.2f}",
+                     ax, ay, az, gx, gy, gz);
+    if (n <= 0) return;
+
+    httpd_ws_frame_t frame = {
+        .final = true,
+        .fragmented = false,
+        .type = HTTPD_WS_TYPE_TEXT,
+        .payload = (uint8_t *)msg,
+        .len = (size_t)n
+    };
+
+    int active_clients = 0;
+    if (ws_clients_mutex) xSemaphoreTake(ws_clients_mutex, portMAX_DELAY);
+    for (int i = 0; i < WS_MAX_CLIENTS; ++i)
+    {
+        int fd = ws_client_fds[i];
+        if (fd != -1)
+        {
+            active_clients++;
+            esp_err_t err = httpd_ws_send_frame_async(server, fd, &frame);
+            if (err != ESP_OK)
+            {
+                /* Drop bad clients */
+                ESP_LOGW(TAG, "Failed to send WebSocket frame to client %d, removing client", fd);
+                ws_client_fds[i] = -1;
+            }
+        }
+    }
+    if (ws_clients_mutex) xSemaphoreGive(ws_clients_mutex);
+    
+    /* Log occasionally for debugging (every 50 calls = ~5 seconds at 100ms period) */
+    static int debug_counter = 0;
+    if (++debug_counter >= 50) {
+        ESP_LOGI(TAG, "Broadcasting IMU data to %d WebSocket clients", active_clients);
+        debug_counter = 0;
     }
 }
 
@@ -786,6 +860,7 @@ static esp_err_t start_webserver(void)
         httpd_register_uri_handler(server, &uri_ota);
         httpd_register_uri_handler(server, &uri_status);
         httpd_register_uri_handler(server, &uri_reset);
+        httpd_register_uri_handler(server, &uri_ws);
 
         return ESP_OK;
     }
@@ -1023,6 +1098,90 @@ static esp_err_t reset_get_handler(httpd_req_t *req)
     esp_restart(); // This will reboot the device immediately
 
     return ESP_OK; // Note: Code here will not be reached
+}
+
+/* Helpers to manage WS client list */
+static void ws_add_client(int sockfd)
+{
+    if (ws_clients_mutex) xSemaphoreTake(ws_clients_mutex, portMAX_DELAY);
+    for (int i = 0; i < WS_MAX_CLIENTS; ++i)
+    {
+        if (ws_client_fds[i] == sockfd) { if (ws_clients_mutex) xSemaphoreGive(ws_clients_mutex); return; }
+    }
+    for (int i = 0; i < WS_MAX_CLIENTS; ++i)
+    {
+        if (ws_client_fds[i] == -1)
+        {
+            ws_client_fds[i] = sockfd;
+            break;
+        }
+    }
+    if (ws_clients_mutex) xSemaphoreGive(ws_clients_mutex);
+}
+
+static void ws_remove_client(int sockfd)
+{
+    if (ws_clients_mutex) xSemaphoreTake(ws_clients_mutex, portMAX_DELAY);
+    for (int i = 0; i < WS_MAX_CLIENTS; ++i)
+    {
+        if (ws_client_fds[i] == sockfd)
+        {
+            ws_client_fds[i] = -1;
+            break;
+        }
+    }
+    if (ws_clients_mutex) xSemaphoreGive(ws_clients_mutex);
+}
+
+/* WebSocket handler */
+static esp_err_t ws_handler(httpd_req_t *req)
+{
+    /* HTTP GET means handshake is being done */
+    if (req->method == HTTP_GET)
+    {
+        /* Add client immediately after successful handshake */
+        int sockfd = httpd_req_to_sockfd(req);
+        ws_add_client(sockfd);
+        ESP_LOGI(TAG, "WebSocket client connected, sockfd: %d", sockfd);
+        return ESP_OK;
+    }
+
+    httpd_ws_frame_t ws_pkt = {
+        .final = true,
+        .fragmented = false,
+        .type = HTTPD_WS_TYPE_TEXT,
+        .payload = NULL,
+        .len = 0
+    };
+
+    /* First get frame length */
+    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+    if (ret != ESP_OK) return ret;
+
+    /* Allocate and receive payload if any */
+    uint8_t *buf = NULL;
+    if (ws_pkt.len)
+    {
+        buf = (uint8_t *)malloc(ws_pkt.len + 1);
+        if (!buf) return ESP_ERR_NO_MEM;
+        ws_pkt.payload = buf;
+        ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+        if (ret != ESP_OK) { free(buf); return ret; }
+        buf[ws_pkt.len] = 0;
+    }
+
+    int sockfd = httpd_req_to_sockfd(req);
+
+    /* Track clients; handle close frames */
+    if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE)
+    {
+        ws_remove_client(sockfd);
+        ESP_LOGI(TAG, "WebSocket client disconnected, sockfd: %d", sockfd);
+    }
+    /* Note: Client was already added during handshake, no need to add again */
+
+    if (buf) free(buf);
+    return ESP_OK;
 }
 
 

@@ -37,7 +37,13 @@
 /*******************************************************************************/
 /*    for variables defined in this .c file, to be used in other .c files.     */
 /*******************************************************************************/
-// Basic HTML Page with Motor Control Buttons and OTA Button
+
+/******************************************************************************
+ * NOTE: The HTML_PAGE string uses a C++11 raw string literal (R"rawliteral(...)" syntax).
+ * This allows embedding multi-line HTML, CSS, and JavaScript directly in the source code
+ * without escaping quotes, backslashes, or newlines. Although this file has a .c extension,
+ * it must be compiled as C++ for this feature to work.
+ ******************************************************************************/
 const char *HTML_PAGE = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
@@ -211,6 +217,90 @@ const char *HTML_PAGE = R"rawliteral(
         margin-top: auto;
     }
     
+    .imu-panel {
+        background-color: var(--panel-bg);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 0 auto 30px;
+        max-width: 500px;
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(0, 188, 212, 0.3);
+    }
+    
+    .imu-title {
+        color: var(--primary);
+        font-size: 1.5rem;
+        margin-bottom: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .imu-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-gap: 15px;
+    }
+    
+    .imu-section {
+        background-color: rgba(0, 0, 0, 0.3);
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 3px solid var(--primary);
+    }
+    
+    .imu-section h3 {
+        color: var(--primary);
+        font-size: 1rem;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .imu-values {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .imu-value {
+        display: flex;
+        justify-content: space-between;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+    }
+    
+    .imu-label {
+        color: #aaa;
+        font-weight: bold;
+    }
+    
+    .imu-data {
+        color: var(--text-color);
+        text-align: right;
+    }
+    
+    .connection-status {
+        text-align: center;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .connection-status.connected {
+        background-color: rgba(76, 175, 80, 0.2);
+        color: #4caf50;
+        border: 1px solid #4caf50;
+    }
+    
+    .connection-status.disconnected {
+        background-color: rgba(244, 67, 54, 0.2);
+        color: #f44336;
+        border: 1px solid #f44336;
+    }
+    
     .battery-container {
         position: absolute;
         top: 0;
@@ -253,6 +343,19 @@ const char *HTML_PAGE = R"rawliteral(
         
         h1 {
         font-size: 1.8rem;
+        }
+        
+        .imu-grid {
+        grid-template-columns: 1fr;
+        grid-gap: 10px;
+        }
+        
+        .imu-title {
+        font-size: 1.2rem;
+        }
+        
+        .imu-panel {
+        padding: 15px;
         }
     }
     </style>
@@ -306,6 +409,48 @@ const char *HTML_PAGE = R"rawliteral(
         <br>
         <button id="btn-reset" class="btn ota" style="margin-top: 10px;" onclick="resetDevice()">Soft Reset</button>
 
+    </div>
+    
+    <!-- IMU Data Panel -->
+    <div class="imu-panel">
+        <div class="imu-title">IMU Sensor Data</div>
+        <div class="connection-status disconnected" id="ws-status">WebSocket Disconnected</div>
+        <div class="imu-grid">
+            <div class="imu-section">
+                <h3>Accelerometer (g)</h3>
+                <div class="imu-values">
+                    <div class="imu-value">
+                        <span class="imu-label">X:</span>
+                        <span class="imu-data" id="accel-x">0.00</span>
+                    </div>
+                    <div class="imu-value">
+                        <span class="imu-label">Y:</span>
+                        <span class="imu-data" id="accel-y">0.00</span>
+                    </div>
+                    <div class="imu-value">
+                        <span class="imu-label">Z:</span>
+                        <span class="imu-data" id="accel-z">0.00</span>
+                    </div>
+                </div>
+            </div>
+            <div class="imu-section">
+                <h3>Gyroscope (°/s)</h3>
+                <div class="imu-values">
+                    <div class="imu-value">
+                        <span class="imu-label">X:</span>
+                        <span class="imu-data" id="gyro-x">0.00</span>
+                    </div>
+                    <div class="imu-value">
+                        <span class="imu-label">Y:</span>
+                        <span class="imu-data" id="gyro-y">0.00</span>
+                    </div>
+                    <div class="imu-value">
+                        <span class="imu-label">Z:</span>
+                        <span class="imu-data" id="gyro-z">0.00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     
     <div id="status">Initializing systems...</div>
@@ -409,6 +554,78 @@ const char *HTML_PAGE = R"rawliteral(
             }
         }
             
+        // --- WebSocket Functions for IMU Data ---
+        let ws = null;
+        let wsReconnectTimeout = null;
+        
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            console.log('Connecting to WebSocket:', wsUrl);
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function(event) {
+                console.log('WebSocket connected');
+                updateConnectionStatus(true);
+                // Clear any pending reconnection timeout
+                if (wsReconnectTimeout) {
+                    clearTimeout(wsReconnectTimeout);
+                    wsReconnectTimeout = null;
+                }
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'imu') {
+                        updateIMUDisplay(data);
+                    }
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+            
+            ws.onclose = function(event) {
+                console.log('WebSocket disconnected');
+                updateConnectionStatus(false);
+                // Attempt to reconnect after 3 seconds
+                wsReconnectTimeout = setTimeout(() => {
+                    console.log('Attempting to reconnect WebSocket...');
+                    initWebSocket();
+                }, 3000);
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus(false);
+            };
+        }
+        
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('ws-status');
+            if (connected) {
+                statusElement.textContent = 'WebSocket Connected';
+                statusElement.className = 'connection-status connected';
+            } else {
+                statusElement.textContent = 'WebSocket Disconnected';
+                statusElement.className = 'connection-status disconnected';
+            }
+        }
+        
+        function updateIMUDisplay(data) {
+            // Update accelerometer values
+            document.getElementById('accel-x').textContent = data.ax.toFixed(2);
+            document.getElementById('accel-y').textContent = data.ay.toFixed(2);
+            document.getElementById('accel-z').textContent = data.az.toFixed(2);
+            
+            // Update gyroscope values
+            document.getElementById('gyro-x').textContent = data.gx.toFixed(2);
+            document.getElementById('gyro-y').textContent = data.gy.toFixed(2);
+            document.getElementById('gyro-z').textContent = data.gz.toFixed(2);
+        }
+            
         // --- Status Update Functions ---
         function updateStatus() {
             fetch('/print')
@@ -497,6 +714,9 @@ const char *HTML_PAGE = R"rawliteral(
 
             // Add listener for OTA button
                 document.getElementById('btn-ota').addEventListener('click', startOta);
+
+            // Initialize WebSocket for IMU data
+            initWebSocket();
 
             // Start status updates
             startStatusUpdates();
