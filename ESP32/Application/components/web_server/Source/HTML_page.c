@@ -51,6 +51,7 @@ const char *HTML_PAGE = R"rawliteral(
     <meta charset="UTF-8">
     <title>Wave Rover Control</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
     <style>
     :root {
         --primary: #00bcd4;
@@ -301,6 +302,54 @@ const char *HTML_PAGE = R"rawliteral(
         border: 1px solid #f44336;
     }
     
+    .chart-container {
+        background-color: var(--panel-bg);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 0 auto 30px;
+        max-width: 800px;
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(0, 188, 212, 0.3);
+    }
+    
+    .chart-title {
+        color: var(--primary);
+        font-size: 1.5rem;
+        margin-bottom: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        text-align: center;
+    }
+    
+    .chart-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-gap: 20px;
+    }
+    
+    .chart-section {
+        background-color: rgba(0, 0, 0, 0.3);
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 3px solid var(--primary);
+        height: 300px;
+        position: relative;
+    }
+    
+    .chart-section h3 {
+        color: var(--primary);
+        font-size: 1rem;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        text-align: center;
+    }
+    
+    .chart-canvas {
+        width: 100% !important;
+        height: calc(100% - 40px) !important;
+    }
+    
     .battery-container {
         position: absolute;
         top: 0;
@@ -348,6 +397,15 @@ const char *HTML_PAGE = R"rawliteral(
         .imu-grid {
         grid-template-columns: 1fr;
         grid-gap: 10px;
+        }
+        
+        .chart-grid {
+        grid-template-columns: 1fr;
+        grid-gap: 10px;
+        }
+        
+        .chart-section {
+        height: 250px;
         }
         
         .imu-title {
@@ -449,6 +507,21 @@ const char *HTML_PAGE = R"rawliteral(
                         <span class="imu-data" id="gyro-z">0.00</span>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Live Charts Panel -->
+    <div class="chart-container">
+        <div class="chart-title">Live IMU Charts</div>
+        <div class="chart-grid">
+            <div class="chart-section">
+                <h3>Accelerometer (g)</h3>
+                <canvas id="accelChart" class="chart-canvas"></canvas>
+            </div>
+            <div class="chart-section">
+                <h3>Gyroscope (°/s)</h3>
+                <canvas id="gyroChart" class="chart-canvas"></canvas>
             </div>
         </div>
     </div>
@@ -558,6 +631,215 @@ const char *HTML_PAGE = R"rawliteral(
         let ws = null;
         let wsReconnectTimeout = null;
         
+        // --- Chart Configuration ---
+        let accelChart = null;
+        let gyroChart = null;
+        const MAX_DATA_POINTS = 50; // Keep last 50 data points for performance
+        let startTime = null; // Track start time for relative timestamps
+        
+        // Chart data storage
+        const chartData = {
+            labels: [],
+            accel: { x: [], y: [], z: [] },
+            gyro: { x: [], y: [], z: [] }
+        };
+        
+        function initCharts() {
+            const accelCtx = document.getElementById('accelChart').getContext('2d');
+            const gyroCtx = document.getElementById('gyroChart').getContext('2d');
+            
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false, // Disable animations for better performance
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                        title: {
+                            display: true,
+                            text: 'Time (s)',
+                            color: '#e0e0e0'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#e0e0e0',
+                            callback: function(value, index, values) {
+                                // Format timestamp to show only 1 decimal place
+                                return Number(value).toFixed(1);
+                            }
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            color: '#e0e0e0'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#e0e0e0'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e0e0e0'
+                        }
+                    }
+                }
+            };
+            
+            // Accelerometer chart
+            accelChart = new Chart(accelCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: 'X-axis',
+                            data: [],
+                            borderColor: '#ff6b6b',
+                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Y-axis',
+                            data: [],
+                            borderColor: '#4ecdc4',
+                            backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Z-axis',
+                            data: [],
+                            borderColor: '#45b7d1',
+                            backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    ...chartOptions,
+                    scales: {
+                        ...chartOptions.scales,
+                        y: {
+                            ...chartOptions.scales.y,
+                            title: {
+                                display: true,
+                                text: 'Acceleration (g)',
+                                color: '#e0e0e0'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Gyroscope chart
+            gyroChart = new Chart(gyroCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: 'X-axis',
+                            data: [],
+                            borderColor: '#ff6b6b',
+                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Y-axis',
+                            data: [],
+                            borderColor: '#4ecdc4',
+                            backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Z-axis',
+                            data: [],
+                            borderColor: '#45b7d1',
+                            backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    ...chartOptions,
+                    scales: {
+                        ...chartOptions.scales,
+                        y: {
+                            ...chartOptions.scales.y,
+                            title: {
+                                display: true,
+                                text: 'Angular Velocity (°/s)',
+                                color: '#e0e0e0'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateCharts(timestamp, ax, ay, az, gx, gy, gz) {
+            // Initialize start time on first data point
+            if (startTime === null) {
+                startTime = timestamp;
+            }
+            
+            // Calculate relative time in seconds
+            const relativeTime = timestamp - startTime;
+            
+            // Add new data points
+            chartData.labels.push(relativeTime);
+            chartData.accel.x.push({ x: relativeTime, y: ax });
+            chartData.accel.y.push({ x: relativeTime, y: ay });
+            chartData.accel.z.push({ x: relativeTime, y: az });
+            chartData.gyro.x.push({ x: relativeTime, y: gx });
+            chartData.gyro.y.push({ x: relativeTime, y: gy });
+            chartData.gyro.z.push({ x: relativeTime, y: gz });
+            
+            // Remove old data points to maintain performance
+            if (chartData.labels.length > MAX_DATA_POINTS) {
+                chartData.labels.shift();
+                chartData.accel.x.shift();
+                chartData.accel.y.shift();
+                chartData.accel.z.shift();
+                chartData.gyro.x.shift();
+                chartData.gyro.y.shift();
+                chartData.gyro.z.shift();
+            }
+            
+            // Update chart data
+            if (accelChart) {
+                accelChart.data.datasets[0].data = chartData.accel.x;
+                accelChart.data.datasets[1].data = chartData.accel.y;
+                accelChart.data.datasets[2].data = chartData.accel.z;
+                accelChart.update('none'); // 'none' mode for better performance
+            }
+            
+            if (gyroChart) {
+                gyroChart.data.datasets[0].data = chartData.gyro.x;
+                gyroChart.data.datasets[1].data = chartData.gyro.y;
+                gyroChart.data.datasets[2].data = chartData.gyro.z;
+                gyroChart.update('none');
+            }
+        }
+        
         function initWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -615,7 +897,7 @@ const char *HTML_PAGE = R"rawliteral(
         }
         
         function updateIMUDisplay(data) {
-            // Update accelerometer values
+            // Update numerical display
             document.getElementById('accel-x').textContent = data.ax.toFixed(2);
             document.getElementById('accel-y').textContent = data.ay.toFixed(2);
             document.getElementById('accel-z').textContent = data.az.toFixed(2);
@@ -624,6 +906,10 @@ const char *HTML_PAGE = R"rawliteral(
             document.getElementById('gyro-x').textContent = data.gx.toFixed(2);
             document.getElementById('gyro-y').textContent = data.gy.toFixed(2);
             document.getElementById('gyro-z').textContent = data.gz.toFixed(2);
+            
+            // Update charts
+            const currentTime = Date.now() / 1000; // Convert to seconds
+            updateCharts(currentTime, data.ax, data.ay, data.az, data.gx, data.gy, data.gz);
         }
             
         // --- Status Update Functions ---
@@ -655,6 +941,9 @@ const char *HTML_PAGE = R"rawliteral(
         // --- Event Listener Setup ---
         window.addEventListener('DOMContentLoaded', (event) => {
             console.log('DOM fully loaded and parsed');
+            
+            // Initialize charts
+            initCharts();
             
             // Add listeners to motor control buttons
             document.querySelectorAll('.motor-btn').forEach(button => {
