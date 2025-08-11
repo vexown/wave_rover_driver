@@ -217,91 +217,7 @@ const char *HTML_PAGE = R"rawliteral(
         color: #666;
         margin-top: auto;
     }
-    
-    .imu-panel {
-        background-color: var(--panel-bg);
-        border-radius: 15px;
-        padding: 20px;
-        margin: 0 auto 30px;
-        max-width: 500px;
-        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
-        border: 1px solid rgba(0, 188, 212, 0.3);
-    }
-    
-    .imu-title {
-        color: var(--primary);
-        font-size: 1.5rem;
-        margin-bottom: 15px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    
-    .imu-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        grid-gap: 15px;
-    }
-    
-    .imu-section {
-        background-color: rgba(0, 0, 0, 0.3);
-        padding: 15px;
-        border-radius: 8px;
-        border-left: 3px solid var(--primary);
-    }
-    
-    .imu-section h3 {
-        color: var(--primary);
-        font-size: 1rem;
-        margin-bottom: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    
-    .imu-values {
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-    }
-    
-    .imu-value {
-        display: flex;
-        justify-content: space-between;
-        font-family: 'Courier New', monospace;
-        font-size: 14px;
-    }
-    
-    .imu-label {
-        color: #aaa;
-        font-weight: bold;
-    }
-    
-    .imu-data {
-        color: var(--text-color);
-        text-align: right;
-    }
-    
-    .connection-status {
-        text-align: center;
-        padding: 10px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-        font-weight: bold;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    
-    .connection-status.connected {
-        background-color: rgba(76, 175, 80, 0.2);
-        color: #4caf50;
-        border: 1px solid #4caf50;
-    }
-    
-    .connection-status.disconnected {
-        background-color: rgba(244, 67, 54, 0.2);
-        color: #f44336;
-        border: 1px solid #f44336;
-    }
-    
+        
     .chart-container {
         background-color: var(--panel-bg);
         border-radius: 15px;
@@ -350,6 +266,28 @@ const char *HTML_PAGE = R"rawliteral(
         height: calc(100% - 40px) !important;
     }
     
+    .connection-status {
+        text-align: center;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .connection-status.connected {
+        background-color: rgba(76, 175, 80, 0.2);
+        color: #4caf50;
+        border: 1px solid #4caf50;
+    }
+    
+    .connection-status.disconnected {
+        background-color: rgba(244, 67, 54, 0.2);
+        color: #f44336;
+        border: 1px solid #f44336;
+    }
+    
     .battery-container {
         position: absolute;
         top: 0;
@@ -394,11 +332,6 @@ const char *HTML_PAGE = R"rawliteral(
         font-size: 1.8rem;
         }
         
-        .imu-grid {
-        grid-template-columns: 1fr;
-        grid-gap: 10px;
-        }
-        
         .chart-grid {
         grid-template-columns: 1fr;
         grid-gap: 10px;
@@ -408,11 +341,7 @@ const char *HTML_PAGE = R"rawliteral(
         height: 250px;
         }
         
-        .imu-title {
-        font-size: 1.2rem;
-        }
-        
-        .imu-panel {
+        .chart-container {
         padding: 15px;
         }
     }
@@ -469,51 +398,10 @@ const char *HTML_PAGE = R"rawliteral(
 
     </div>
     
-    <!-- IMU Data Panel -->
-    <div class="imu-panel">
-        <div class="imu-title">IMU Sensor Data</div>
-        <div class="connection-status disconnected" id="ws-status">WebSocket Disconnected</div>
-        <div class="imu-grid">
-            <div class="imu-section">
-                <h3>Accelerometer (g)</h3>
-                <div class="imu-values">
-                    <div class="imu-value">
-                        <span class="imu-label">X:</span>
-                        <span class="imu-data" id="accel-x">0.00</span>
-                    </div>
-                    <div class="imu-value">
-                        <span class="imu-label">Y:</span>
-                        <span class="imu-data" id="accel-y">0.00</span>
-                    </div>
-                    <div class="imu-value">
-                        <span class="imu-label">Z:</span>
-                        <span class="imu-data" id="accel-z">0.00</span>
-                    </div>
-                </div>
-            </div>
-            <div class="imu-section">
-                <h3>Gyroscope (°/s)</h3>
-                <div class="imu-values">
-                    <div class="imu-value">
-                        <span class="imu-label">X:</span>
-                        <span class="imu-data" id="gyro-x">0.00</span>
-                    </div>
-                    <div class="imu-value">
-                        <span class="imu-label">Y:</span>
-                        <span class="imu-data" id="gyro-y">0.00</span>
-                    </div>
-                    <div class="imu-value">
-                        <span class="imu-label">Z:</span>
-                        <span class="imu-data" id="gyro-z">0.00</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
     <!-- Live Charts Panel -->
     <div class="chart-container">
         <div class="chart-title">Live IMU Charts</div>
+        <div class="connection-status disconnected" id="ws-status">WebSocket Disconnected</div>
         <div class="chart-grid">
             <div class="chart-section">
                 <h3>Accelerometer (g)</h3>
@@ -897,16 +785,6 @@ const char *HTML_PAGE = R"rawliteral(
         }
         
         function updateIMUDisplay(data) {
-            // Update numerical display
-            document.getElementById('accel-x').textContent = data.ax.toFixed(2);
-            document.getElementById('accel-y').textContent = data.ay.toFixed(2);
-            document.getElementById('accel-z').textContent = data.az.toFixed(2);
-            
-            // Update gyroscope values
-            document.getElementById('gyro-x').textContent = data.gx.toFixed(2);
-            document.getElementById('gyro-y').textContent = data.gy.toFixed(2);
-            document.getElementById('gyro-z').textContent = data.gz.toFixed(2);
-            
             // Update charts
             const currentTime = Date.now() / 1000; // Convert to seconds
             updateCharts(currentTime, data.ax, data.ay, data.az, data.gx, data.gy, data.gz);
