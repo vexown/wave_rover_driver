@@ -588,7 +588,7 @@ const char *HTML_PAGE = R"rawliteral(
                 data: {
                     datasets: [
                         {
-                            label: 'X-axis',
+                            label: 'Front/Back (X)',
                             data: [],
                             borderColor: '#ff6b6b',
                             backgroundColor: 'rgba(255, 107, 107, 0.1)',
@@ -597,7 +597,7 @@ const char *HTML_PAGE = R"rawliteral(
                             tension: 0.1
                         },
                         {
-                            label: 'Y-axis',
+                            label: 'Side (Y)',
                             data: [],
                             borderColor: '#4ecdc4',
                             backgroundColor: 'rgba(78, 205, 196, 0.1)',
@@ -606,7 +606,7 @@ const char *HTML_PAGE = R"rawliteral(
                             tension: 0.1
                         },
                         {
-                            label: 'Z-axis',
+                            label: 'Up/Down (Z)',
                             data: [],
                             borderColor: '#45b7d1',
                             backgroundColor: 'rgba(69, 183, 209, 0.1)',
@@ -638,7 +638,7 @@ const char *HTML_PAGE = R"rawliteral(
                 data: {
                     datasets: [
                         {
-                            label: 'X-axis',
+                            label: 'Roll (X)',
                             data: [],
                             borderColor: '#ff6b6b',
                             backgroundColor: 'rgba(255, 107, 107, 0.1)',
@@ -647,7 +647,7 @@ const char *HTML_PAGE = R"rawliteral(
                             tension: 0.1
                         },
                         {
-                            label: 'Y-axis',
+                            label: 'Pitch (Y)',
                             data: [],
                             borderColor: '#4ecdc4',
                             backgroundColor: 'rgba(78, 205, 196, 0.1)',
@@ -656,7 +656,7 @@ const char *HTML_PAGE = R"rawliteral(
                             tension: 0.1
                         },
                         {
-                            label: 'Z-axis',
+                            label: 'Yaw (Z)',
                             data: [],
                             borderColor: '#45b7d1',
                             backgroundColor: 'rgba(69, 183, 209, 0.1)',
