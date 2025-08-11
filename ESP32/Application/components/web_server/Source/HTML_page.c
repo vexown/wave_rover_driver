@@ -608,8 +608,8 @@ const char *HTML_PAGE = R"rawliteral(
                         {
                             label: 'Up/Down (Z)',
                             data: [],
-                            borderColor: '#45b7d1',
-                            backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                            borderColor: '#9b59b6',
+                            backgroundColor: 'rgba(155, 89, 182, 0.1)',
                             borderWidth: 2,
                             pointRadius: 0,
                             tension: 0.1
@@ -658,8 +658,8 @@ const char *HTML_PAGE = R"rawliteral(
                         {
                             label: 'Yaw (Z)',
                             data: [],
-                            borderColor: '#45b7d1',
-                            backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                            borderColor: '#9b59b6',
+                            backgroundColor: 'rgba(155, 89, 182, 0.1)',
                             borderWidth: 2,
                             pointRadius: 0,
                             tension: 0.1
