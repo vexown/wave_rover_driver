@@ -96,10 +96,52 @@
  * gEN = 1 (Enable Gyroscope) */
 #define QMI8658_SENSOR_ENABLE       0b00000011
 
+/* --- AK09918 Register Definitions & Configuration --- */
+
+/* The 7-bit I2C slave address for the AK09918 */
+#define AK09918_I2C_ADDR_DEFAULT    0x0C
+
+/* Register addresses for AK09918 */
+#define AK09918_WIA1_REG            0x00 // Company ID register (0x48)
+#define AK09918_WIA2_REG            0x01 // Device ID register (0x0C) 
+#define AK09918_ST1_REG             0x10 // Status 1 register
+#define AK09918_HXL_REG             0x11 // X-axis magnetic data low byte
+#define AK09918_HXH_REG             0x12 // X-axis magnetic data high byte
+#define AK09918_HYL_REG             0x13 // Y-axis magnetic data low byte
+#define AK09918_HYH_REG             0x14 // Y-axis magnetic data high byte
+#define AK09918_HZL_REG             0x15 // Z-axis magnetic data low byte
+#define AK09918_HZH_REG             0x16 // Z-axis magnetic data high byte
+#define AK09918_TMPS_REG            0x17 // Dummy register
+#define AK09918_ST2_REG             0x18 // Status 2 register
+#define AK09918_CNTL2_REG           0x31 // Control 2 register (mode setting)
+#define AK09918_CNTL3_REG           0x32 // Control 3 register (soft reset)
+
+/* Expected Device IDs */
+#define AK09918_COMPANY_ID          0x48 // Company ID (AKM)
+#define AK09918_DEVICE_ID           0x0C // Device ID for AK09918
+
+/* Control register values */
+#define AK09918_SOFT_RESET          0x01 // Soft reset bit in CNTL3
+#define AK09918_MODE_POWER_DOWN     0x00 // Power-down mode
+#define AK09918_MODE_SINGLE         0x01 // Single measurement mode
+#define AK09918_MODE_CONT_1         0x02 // Continuous mode 1 (10Hz)
+#define AK09918_MODE_CONT_2         0x04 // Continuous mode 2 (20Hz)
+#define AK09918_MODE_CONT_3         0x06 // Continuous mode 3 (50Hz)
+#define AK09918_MODE_CONT_4         0x08 // Continuous mode 4 (100Hz)
+#define AK09918_MODE_SELF_TEST      0x10 // Self-test mode
+
+/* Status register bits */
+#define AK09918_ST1_DRDY_BIT        0x01 // Data ready bit
+#define AK09918_ST1_DOR_BIT         0x02 // Data overrun bit
+#define AK09918_ST2_HOFL_BIT        0x08 // Magnetic sensor overflow bit
+
 /* FreeRTOS task configuration */
 #define TASK_READ_QMI8658_DATA_PRIORITY (tskIDLE_PRIORITY + 1)
 #define TASK_READ_QMI8658_DATA_STACK_SIZE 4096 // Stack size in bytes
 #define TASK_READ_QMI8658_DATA_PERIOD_TICKS pdMS_TO_TICKS(100) // Task period in ticks (100 ms)
+#define TASK_READ_AK09918_DATA_PRIORITY (tskIDLE_PRIORITY + 1)
+#define TASK_READ_AK09918_DATA_STACK_SIZE 4096 // Stack size in bytes
+#define TASK_READ_AK09918_DATA_PERIOD_TICKS pdMS_TO_TICKS(100) // Task period in ticks (100 ms)
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
@@ -138,12 +180,16 @@ typedef struct
 /*******************************************************************************/
 /*                             STATIC VARIABLES                                */
 /*******************************************************************************/
-/* I2C device handle for the sensor */
+/* I2C device handles for the sensors */
 static i2c_master_dev_handle_t qmi8658_dev_handle = NULL;
+static i2c_master_dev_handle_t ak09918_dev_handle = NULL;
 
 /* Sensitivity values from datasheet for ±8g and ±2048dps */
 static const float ACCEL_SENSITIVITY = 4096.0f; // LSB/g for ±8g
 static const float GYRO_SENSITIVITY = 16.0f;    // LSB/dps for ±2048dps
+
+/* Sensitivity for magnetic field conversion */
+static const float MAG_SENSITIVITY = 0.15f; // μT/LSB (typical)
 
 /*******************************************************************************/
 /*                     STATIC FUNCTION DECLARATIONS                            */
@@ -260,6 +306,24 @@ static esp_err_t qmi8658_calibrate_gyro_data(imu_sensor_data_t *sensor_data);
  */
 static void task_read_qmi8658_data(void* pvParameters);
 
+/* TODO - add documentation for below funcions */
+static esp_err_t ak09918_init(void);
+
+static esp_err_t ak09918_i2c_init(void);
+
+static esp_err_t ak09918_reset(void);
+
+static esp_err_t ak09918_verify_device_id(void);
+
+static esp_err_t ak09918_set_mode(uint8_t mode);
+
+static esp_err_t ak09918_write_reg(uint8_t reg_addr, uint8_t data);
+
+static esp_err_t ak09918_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_size);
+
+static esp_err_t ak09918_get_magnetic_data(float *mx, float *my, float *mz);
+
+static void task_read_ak09918_data(void* pvParameters);
 
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
@@ -275,9 +339,14 @@ esp_err_t imu_init(void)
         return init_status;
     }
 
-    /* Initialize AK09918 magnetometer */
-    /* TODO */
-    
+    init_status = ak09918_init();
+    if (init_status != ESP_OK)
+    {
+        return init_status;
+    }
+
+    /* TODO - do IMU Sensor Fusion - look into Kalman Filters */
+
     return ESP_OK;
 }
 
@@ -617,5 +686,307 @@ static void task_read_qmi8658_data(void* pvParameters)
         }
 
         vTaskDelayUntil(&xLastWakeTime, TASK_READ_QMI8658_DATA_PERIOD_TICKS); // Task should execute periodically, precisely (hence the use of vTaskDelayUntil)
+    }
+}
+
+static esp_err_t ak09918_init(void)
+{
+    esp_err_t status = ESP_OK;
+    char log_buffer[256]; // Buffer for formatted log messages
+
+    /* Initialize I2C bus for AK09918 */
+    status = ak09918_i2c_init();
+    if (status != ESP_OK) return status;
+
+    /* Reset the AK09918 device */
+    status = ak09918_reset();
+    if (status != ESP_OK) return status;
+
+    /* Verify the device ID */
+    status = ak09918_verify_device_id();
+    if (status != ESP_OK) return status;
+
+    /* Set to continuous measurement mode 1 (10Hz) for regular operation */
+    status = ak09918_set_mode(AK09918_MODE_CONT_1);
+    if (status != ESP_OK) return status;
+
+    snprintf(log_buffer, sizeof(log_buffer), "IMU: AK09918 magnetometer initialized successfully in continuous mode (10Hz)");
+    web_server_print(log_buffer);
+
+    /* Create the task to read AK09918 magnetometer data */
+    BaseType_t status_task = xTaskCreate(task_read_ak09918_data, "magnetometer_data_read", TASK_READ_AK09918_DATA_STACK_SIZE, NULL, TASK_READ_AK09918_DATA_PRIORITY, NULL);
+    if(status_task != pdPASS)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to create task for reading AK09918 magnetometer data");
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(ak09918_dev_handle);
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t ak09918_i2c_init(void)
+{
+    esp_err_t ret = ESP_OK;
+    char log_buffer[256]; // Buffer for formatted log messages
+
+    /* Get I2C bus handle */
+    i2c_master_bus_handle_t i2c_manager_bus_handle = NULL;
+    ret = i2c_manager_get_bus_handle(&i2c_manager_bus_handle);
+    if (ret != ESP_OK)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to get I2C bus handle: %s", esp_err_to_name(ret));
+        web_server_print(log_buffer);
+        return ret;
+    }
+
+    /* Define the I2C configuration for the AK09918 device */
+    i2c_device_config_t dev_cfg = 
+    {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,      // 7-bit address length
+        .device_address = AK09918_I2C_ADDR_DEFAULT, // Default I2C address for AK09918
+        .scl_speed_hz = 400000,                     // AK09918 supports I2C Fast Mode up to 400 kHz
+        .scl_wait_us = 0,                           // Use default wait time
+        .flags.disable_ack_check = false,           // Enable ACK check 
+    };
+
+    /* Add the AK09918 device to the I2C bus */
+    ret = i2c_master_bus_add_device(i2c_manager_bus_handle, &dev_cfg, &ak09918_dev_handle);
+    if (ret != ESP_OK) 
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to add AK09918 device to I2C bus");
+        web_server_print(log_buffer);
+        return ret;
+    }
+
+    return ret; // Should return ESP_OK if everything is successful, otherwise it would have returned earlier with an error code
+}
+
+static esp_err_t ak09918_reset(void)
+{
+    esp_err_t ret = ESP_OK;
+    char log_buffer[256];
+
+    /* Perform soft reset */
+    ret = ak09918_write_reg(AK09918_CNTL3_REG, AK09918_SOFT_RESET);
+    if (ret != ESP_OK)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to reset AK09918: %s", esp_err_to_name(ret));
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(ak09918_dev_handle);
+        return ret;
+    }
+
+    /* Wait for reset to complete (datasheet specifies 100μs minimum) */
+    vTaskDelay(pdMS_TO_TICKS(10)); // 10ms to be safe
+
+    return ret;
+}
+
+static esp_err_t ak09918_verify_device_id(void)
+{
+    esp_err_t ret = ESP_OK;
+    char log_buffer[256];
+    uint8_t company_id = 0;
+    uint8_t device_id = 0;
+
+    /* Read company ID (WIA1 register) */
+    ret = ak09918_read_reg(AK09918_WIA1_REG, &company_id, 1);
+    if (ret != ESP_OK)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to read AK09918 company ID");
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(ak09918_dev_handle);
+        return ret;
+    }
+
+    /* Read device ID (WIA2 register) */
+    ret = ak09918_read_reg(AK09918_WIA2_REG, &device_id, 1);
+    if (ret != ESP_OK)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to read AK09918 device ID");
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(ak09918_dev_handle);
+        return ret;
+    }
+
+    /* Verify company ID */
+    if (company_id != AK09918_COMPANY_ID)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: AK09918 company ID mismatch! Expected 0x%02X, got 0x%02X", 
+                 AK09918_COMPANY_ID, company_id);
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(ak09918_dev_handle);
+        return ESP_FAIL;
+    }
+
+    /* Verify device ID */
+    if (device_id != AK09918_DEVICE_ID)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: AK09918 device ID mismatch! Expected 0x%02X, got 0x%02X", 
+                 AK09918_DEVICE_ID, device_id);
+        web_server_print(log_buffer);
+        i2c_master_bus_rm_device(ak09918_dev_handle);
+        return ESP_FAIL;
+    }
+
+    snprintf(log_buffer, sizeof(log_buffer), "IMU: AK09918 device verification successful (Company: 0x%02X, Device: 0x%02X)", 
+             company_id, device_id);
+    web_server_print(log_buffer);
+
+    return ESP_OK;
+}
+
+static esp_err_t ak09918_set_mode(uint8_t mode)
+{
+    esp_err_t ret = ESP_OK;
+    char log_buffer[256];
+
+    /* Set to power-down mode first (required before changing to any other mode) */
+    ret = ak09918_write_reg(AK09918_CNTL2_REG, AK09918_MODE_POWER_DOWN);
+    if (ret != ESP_OK)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to set AK09918 to power-down mode");
+        web_server_print(log_buffer);
+        return ret;
+    }
+
+    /* Wait required time before setting new mode (datasheet specifies 100μs minimum) */
+    vTaskDelay(pdMS_TO_TICKS(1)); // 1ms to be safe
+
+    /* Set the desired mode */
+    ret = ak09918_write_reg(AK09918_CNTL2_REG, mode);
+    if (ret != ESP_OK)
+    {
+        snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to set AK09918 mode to 0x%02X", mode);
+        web_server_print(log_buffer);
+        return ret;
+    }
+
+    /* Small delay to allow mode to take effect */
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    return ESP_OK;
+}
+
+static esp_err_t ak09918_write_reg(uint8_t reg_addr, uint8_t data)
+{
+    uint8_t write_buf[2] = {reg_addr, data};
+    
+    return i2c_master_transmit(ak09918_dev_handle, write_buf, sizeof(write_buf), -1);
+}
+
+static esp_err_t ak09918_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_size)
+{
+    return i2c_master_transmit_receive(ak09918_dev_handle, &reg_addr, 1, data, data_size, -1);
+}
+
+static esp_err_t ak09918_get_magnetic_data(float *mx, float *my, float *mz)
+{
+    /* Input validation */
+    if(mx == NULL || my == NULL || mz == NULL) 
+    {
+        web_server_print("IMU: Invalid magnetometer data pointers");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t status_reg = 0;
+    uint8_t mag_data_buffer[7] = {0}; // ST1 + 6 bytes of data
+    int16_t mag_x, mag_y, mag_z;
+
+    /* Check if data is ready by reading ST1 register */
+    esp_err_t read_status = ak09918_read_reg(AK09918_ST1_REG, &status_reg, 1);
+    if (read_status != ESP_OK) 
+    {
+        web_server_print("IMU: Failed to read AK09918 status register");
+        return read_status;
+    }
+
+    /* Check DRDY bit - if not ready, return without error but set values to 0 */
+    if (!(status_reg & AK09918_ST1_DRDY_BIT))
+    {
+        *mx = 0.0f;
+        *my = 0.0f; 
+        *mz = 0.0f;
+        return ESP_OK; // Not an error, just no new data available
+    }
+
+    /* Check for data overrun */
+    if (status_reg & AK09918_ST1_DOR_BIT)
+    {
+        web_server_print("IMU: AK09918 data overrun detected");
+    }
+
+    /* Perform burst read of magnetometer data (HXL to HZH) */
+    read_status = ak09918_read_reg(AK09918_HXL_REG, mag_data_buffer, 6);
+    if (read_status != ESP_OK) 
+    {
+        web_server_print("IMU: Failed to read AK09918 magnetometer data");
+        return read_status;
+    }
+
+    /* Read ST2 register to complete the data reading sequence (required by datasheet) */
+    uint8_t status2_reg = 0;
+    read_status = ak09918_read_reg(AK09918_ST2_REG, &status2_reg, 1);
+    if (read_status != ESP_OK) 
+    {
+        web_server_print("IMU: Failed to read AK09918 ST2 register");
+        return read_status;
+    }
+
+    /* Check for magnetic sensor overflow */
+    if (status2_reg & AK09918_ST2_HOFL_BIT)
+    {
+        web_server_print("IMU: AK09918 magnetic sensor overflow detected");
+        *mx = 0.0f;
+        *my = 0.0f;
+        *mz = 0.0f;
+        return ESP_OK; // Don't treat overflow as fatal error, just return zero values
+    }
+
+    /* Extract magnetometer data and combine the high and low bytes into 16-bit integers */
+    /* Data is in Little Endian format: low byte first, then high byte */
+    mag_x = (int16_t)((mag_data_buffer[1] << 8) | mag_data_buffer[0]);
+    mag_y = (int16_t)((mag_data_buffer[3] << 8) | mag_data_buffer[2]);
+    mag_z = (int16_t)((mag_data_buffer[5] << 8) | mag_data_buffer[4]);
+
+    /* Convert to Physical Units (μT) and store in output variables */
+    *mx = (float)mag_x * MAG_SENSITIVITY;
+    *my = (float)mag_y * MAG_SENSITIVITY;
+    *mz = (float)mag_z * MAG_SENSITIVITY;
+
+    return ESP_OK;
+}
+
+static void task_read_ak09918_data(void* pvParameters) 
+{
+    /********************* Task Initialization ***************************/ 
+    char log_buffer[256]; // Buffer for formatted log messages
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+
+    /********************* Task Loop ***************************/
+    while (1)
+    {
+        float mx, my, mz;
+
+        /* Acquire magnetometer data from AK09918 */
+        esp_err_t sensor_status = ak09918_get_magnetic_data(&mx, &my, &mz);
+
+        /* TODO - instead of just printing, use the data somehow */
+
+        if (sensor_status == ESP_OK)
+        {
+            /* Print magnetometer data */
+            snprintf(log_buffer, sizeof(log_buffer), "IMU: Magnetometer - X: %.2f μT, Y: %.2f μT, Z: %.2f μT", mx, my, mz);
+            web_server_print(log_buffer);
+        }
+        else
+        {
+            snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to read magnetometer data: %s", esp_err_to_name(sensor_status));
+            web_server_print(log_buffer);
+        }
+
+        vTaskDelayUntil(&xLastWakeTime, TASK_READ_AK09918_DATA_PERIOD_TICKS); // Task should execute periodically, precisely
     }
 }
