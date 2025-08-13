@@ -102,7 +102,7 @@
 #define AK09918_I2C_ADDR_DEFAULT    0x0C
 
 /* Register addresses for AK09918 */
-#define AK09918_WIA1_REG            0x00 // Company ID register (0x48)
+#define AK09918_WIA1_REG            0x00 // Company ID register (0x48) (WIA == Who I Am)
 #define AK09918_WIA2_REG            0x01 // Device ID register (0x0C) 
 #define AK09918_ST1_REG             0x10 // Status 1 register
 #define AK09918_HXL_REG             0x11 // X-axis magnetic data low byte
@@ -123,12 +123,12 @@
 /* Control register values */
 #define AK09918_SOFT_RESET          0x01 // Soft reset bit in CNTL3
 #define AK09918_MODE_POWER_DOWN     0x00 // Power-down mode
-#define AK09918_MODE_SINGLE         0x01 // Single measurement mode
-#define AK09918_MODE_CONT_1         0x02 // Continuous mode 1 (10Hz)
-#define AK09918_MODE_CONT_2         0x04 // Continuous mode 2 (20Hz)
-#define AK09918_MODE_CONT_3         0x06 // Continuous mode 3 (50Hz)
-#define AK09918_MODE_CONT_4         0x08 // Continuous mode 4 (100Hz)
-#define AK09918_MODE_SELF_TEST      0x10 // Self-test mode
+#define AK09918_MODE_SINGLE         0x01 // Single measurement mode - Sensor is measured for one time and data is output. Transits to Power-down mode automatically after measurement ended.
+#define AK09918_MODE_CONT_1         0x02 // Continuous mode 1 - Sensor is measured periodically at 10Hz
+#define AK09918_MODE_CONT_2         0x04 // Continuous mode 2 - Sensor is measured periodically at 20Hz
+#define AK09918_MODE_CONT_3         0x06 // Continuous mode 3 - Sensor is measured periodically at 50Hz
+#define AK09918_MODE_CONT_4         0x08 // Continuous mode 4 - Sensor is measured periodically at 100Hz
+#define AK09918_MODE_SELF_TEST      0x10 // Self-test mode - Sensor is self-tested and the result is output. Transits to Power-down mode automatically.
 
 /* Status register bits */
 #define AK09918_ST1_DRDY_BIT        0x01 // Data ready bit
@@ -306,23 +306,98 @@ static esp_err_t qmi8658_calibrate_gyro_data(imu_sensor_data_t *sensor_data);
  */
 static void task_read_qmi8658_data(void* pvParameters);
 
-/* TODO - add documentation for below funcions */
+/**
+ * @brief Initialize the AK09918 magnetometer.
+ * This function initializes the I2C communication, configures the AK09918
+ * device, enables it and then creates a task to read data from the magnetometer.
+ *
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t ak09918_init(void);
 
+/**
+ * @brief Initialize the I2C bus for the AK09918 magnetometer.
+ * This function acquires the I2C bus handle, configures the device address,
+ * and sets the I2C speed. After that, it adds the AK09918 device to the I2C bus.
+ *
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t ak09918_i2c_init(void);
 
+/**
+ * @brief Reset the AK09918 magnetometer.
+ * This function performs a reset of the AK09918 device.
+ *
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t ak09918_reset(void);
 
+/**
+ * @brief Verify the device ID of the AK09918 magnetometer.
+ * This function reads the WIA1 and WIA2 registers and checks two things:
+ *      1. The WIA1 register should contain the value 0x48 (the company ID).
+ *      2. The WIA2 register should contain the value 0x09 (the device ID).
+ * If either of these checks fails, it returns an error.
+ *
+ * @return ESP_OK if the device ID matches, or an error code on failure.
+ */
 static esp_err_t ak09918_verify_device_id(void);
 
+/**
+ * @brief Set the mode of the AK09918 magnetometer.
+ * This function writes a specific mode to the CNTL2 register to set the
+ * desired operating mode of the magnetometer (e.g., power-down, single measurement,
+ * continuous measurement).
+ *
+ * @param mode The mode to set (e.g., AK09918_MODE_CONT_1 for continuous mode 1).
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t ak09918_set_mode(uint8_t mode);
 
+/**
+ * @brief Write a value to a register of the AK09918 magnetometer.
+ * This function writes a single byte of data to a specified register address.
+ *
+ * @param reg_addr The register address to write to.
+ * @param data The data to write to the register.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t ak09918_write_reg(uint8_t reg_addr, uint8_t data);
 
+/**
+ * @brief Read data from a register of the AK09918 magnetometer.
+ * This function reads a specified number of bytes from a given register address.
+ *
+ * @param reg_addr The register address to read from.
+ * @param data Pointer to store the read data.
+ * @param data_size The number of bytes to read.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t ak09918_read_reg(uint8_t reg_addr, uint8_t *data, size_t data_size);
 
+/**
+ * @brief Get the magnetic field data from the AK09918 magnetometer.
+ * This function checks if the data is available (DRDY) and if there has 
+ * been data overrun (DOR). Overrun meaning we haven't read the previous
+ * data in time and a new value replaced it (we are reading too slow, or 
+ * data is produced too fast - check your task period and the magnetometer mode).
+ * If all is well, then it reads the magnetic field data from the AK09918 
+ * registers and converts it to microteslas (uT).
+ *
+ * @param mx Pointer to store the X-axis magnetic field data.
+ * @param my Pointer to store the Y-axis magnetic field data.
+ * @param mz Pointer to store the Z-axis magnetic field data.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t ak09918_get_magnetic_data(float *mx, float *my, float *mz);
 
+/**
+ * @brief Task to read data from the AK09918 magnetometer.
+ * This task will periodically read magnetic field data and process it.
+ *
+ * @param pvParameters Pointer to task parameters (not used).
+ * @return void
+ */
 static void task_read_ak09918_data(void* pvParameters);
 
 /*******************************************************************************/
@@ -707,10 +782,11 @@ static esp_err_t ak09918_init(void)
     if (status != ESP_OK) return status;
 
     /* Set to continuous measurement mode 1 (10Hz) for regular operation */
-    status = ak09918_set_mode(AK09918_MODE_CONT_1);
+    const uint8_t mode = AK09918_MODE_CONT_1;
+    status = ak09918_set_mode(mode);
     if (status != ESP_OK) return status;
 
-    snprintf(log_buffer, sizeof(log_buffer), "IMU: AK09918 magnetometer initialized successfully in continuous mode (10Hz)");
+    snprintf(log_buffer, sizeof(log_buffer), "IMU: AK09918 magnetometer initialized successfully in continuous mode %d", mode);
     web_server_print(log_buffer);
 
     /* Create the task to read AK09918 magnetometer data */
@@ -919,6 +995,7 @@ static esp_err_t ak09918_get_magnetic_data(float *mx, float *my, float *mz)
     }
 
     /* Perform burst read of magnetometer data (HXL to HZH) */
+    /* Measurement data is stored in two’s complement and Little Endian format. Measurement range of each axis is -32752 to 32752 in 16-bit output */
     read_status = ak09918_read_reg(AK09918_HXL_REG, mag_data_buffer, 6);
     if (read_status != ESP_OK) 
     {
@@ -927,6 +1004,9 @@ static esp_err_t ak09918_get_magnetic_data(float *mx, float *my, float *mz)
     }
 
     /* Read ST2 register to complete the data reading sequence (required by datasheet) */
+    /* When ST2 register is read, AK09918 judges that data reading is finished. Stored measurement data is
+       protected during data reading and data is not updated. By reading ST2 register, this protection is
+       released. It is required to read ST2 register after data reading. */
     uint8_t status2_reg = 0;
     read_status = ak09918_read_reg(AK09918_ST2_REG, &status2_reg, 1);
     if (read_status != ESP_OK) 
@@ -936,6 +1016,10 @@ static esp_err_t ak09918_get_magnetic_data(float *mx, float *my, float *mz)
     }
 
     /* Check for magnetic sensor overflow */
+    /* The magnetic sensor may overflow even though measurement data register is not saturated. In this case, measurement data is not
+       correct and HOFL bit turns to “1”. AK09918 has the limitation for measurement range that the sum of absolute values of each axis should be
+       smaller than 4912 μT (|X|+|Y|+|Z| < 4912 μT). When the magnetic field exceeded this limitation, data stored at measurement data are not correct.
+       This is called Magnetic Sensor Overflow. */
     if (status2_reg & AK09918_ST2_HOFL_BIT)
     {
         web_server_print("IMU: AK09918 magnetic sensor overflow detected");
