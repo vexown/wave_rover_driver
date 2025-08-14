@@ -64,6 +64,11 @@
 /* ESP-IDF Libraries */
 #include "esp_err.h"
 
+/* Allow including from C++ files */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*******************************************************************************/
 /*                                  MACROS                                     */
 /*******************************************************************************/
@@ -90,5 +95,8 @@
 esp_err_t imu_init(void);
 
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* IMU_H */

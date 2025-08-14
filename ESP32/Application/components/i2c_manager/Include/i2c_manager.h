@@ -24,6 +24,11 @@
 #include "esp_err.h"
 #include "driver/i2c_master.h"
 
+/* Allow including from C++ files */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*******************************************************************************/
 /*                                  MACROS                                     */
 /*******************************************************************************/
@@ -100,5 +105,8 @@ esp_err_t i2c_manager_deinit(void);
  */
 esp_err_t i2c_manager_get_bus_handle(i2c_master_bus_handle_t *bus_handle);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* I2C_MANAGER_H */

@@ -46,6 +46,11 @@
 /*    specifier for functions, so it is not necessary to use it explicitly.    */
 /*******************************************************************************/
 
+/* Allow including from C++ files */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Initialize WiFi in SoftAP mode and start the HTTP web server.
  *
@@ -81,5 +86,8 @@ bool web_server_is_connected(void);
 
 void web_server_ws_broadcast_imu(float ax, float ay, float az, float gx, float gy, float gz);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* WEB_SERVER_H */

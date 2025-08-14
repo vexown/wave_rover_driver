@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "madgwick_filter.hpp"
 
 /* Project Includes */
 #include "IMU.h"
@@ -421,6 +422,13 @@ esp_err_t imu_init(void)
     }
 
     /* TODO - do IMU Sensor Fusion - look into Kalman Filters */
+    /* ChatGPT: use a lightweight AHRS (Madgwick or Mahony) for orientation, and an EKF (or TinyEKF) to fuse that orientation with wheel odometry for full pose.
+        Madgwick gives the best tradeoff for an ESP32 if you only need attitude; combine Madgwick + a small EKF on the same MCU if you need x/y/θ fused with encoders.*/
+
+    /* Grok: the Madgwick filter stands out as the best for your ESP32-based 4-wheel mobile robot.*/
+
+    /* So Madgwick it is? TODO */
+
 
     return ESP_OK;
 }
@@ -493,7 +501,10 @@ static esp_err_t qmi8658_i2c_init(void)
         .device_address = QMI8658_I2C_ADDR_DEFAULT, // Default I2C address for QMI8658C
         .scl_speed_hz = 400000,                     // I2C Fast Mode supported up to 400 kHz 
         .scl_wait_us = 0,                           // Use default wait time
-        .flags.disable_ack_check = false,           // Enable ACK check 
+        .flags = 
+        {
+            .disable_ack_check = false              // Enable ACK check 
+        }
     };
 
     /* Add the QMI8658C device to the I2C bus */
@@ -824,7 +835,10 @@ static esp_err_t ak09918_i2c_init(void)
         .device_address = AK09918_I2C_ADDR_DEFAULT, // Default I2C address for AK09918
         .scl_speed_hz = 400000,                     // AK09918 supports I2C Fast Mode up to 400 kHz
         .scl_wait_us = 0,                           // Use default wait time
-        .flags.disable_ack_check = false,           // Enable ACK check 
+        .flags = 
+        {
+            .disable_ack_check = false              // Enable ACK check
+        }
     };
 
     /* Add the AK09918 device to the I2C bus */
