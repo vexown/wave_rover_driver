@@ -1,0 +1,3 @@
+## IDF Component Manager Manifest File
+dependencies:
+  espp/filters: "^1.0.19"
