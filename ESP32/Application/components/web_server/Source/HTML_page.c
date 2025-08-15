@@ -51,7 +51,6 @@ const char *HTML_PAGE = R"rawliteral(
     <meta charset="UTF-8">
     <title>Wave Rover Control</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
     <style>
     :root {
         --primary: #00bcd4;
@@ -243,6 +242,12 @@ const char *HTML_PAGE = R"rawliteral(
         grid-gap: 20px;
     }
     
+    .orientation-grid {
+        display: flex;
+        justify-content: center;
+        grid-gap: 20px;
+    }
+    
     .chart-section {
         background-color: rgba(0, 0, 0, 0.3);
         padding: 15px;
@@ -252,7 +257,27 @@ const char *HTML_PAGE = R"rawliteral(
         position: relative;
     }
     
+    .orientation-section {
+        background-color: rgba(0, 0, 0, 0.3);
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 3px solid var(--primary);
+        min-height: 300px;
+        position: relative;
+        max-width: 400px;
+        width: 100%;
+    }
+    
     .chart-section h3 {
+        color: var(--primary);
+        font-size: 1rem;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        text-align: center;
+    }
+    
+    .orientation-section h3 {
         color: var(--primary);
         font-size: 1rem;
         margin-bottom: 10px;
@@ -317,6 +342,103 @@ const char *HTML_PAGE = R"rawliteral(
         border-radius: 1px;
     }
     
+    /* Orientation Values Styles */
+    .orientation-values {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        padding: 10px;
+    }
+    
+    .orientation-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background-color: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+        padding: 15px;
+        border: 1px solid rgba(0, 188, 212, 0.2);
+    }
+    
+    .orientation-label {
+        font-size: 14px;
+        font-weight: bold;
+        color: var(--primary);
+        margin-bottom: 5px;
+        letter-spacing: 1px;
+    }
+    
+    .orientation-value {
+        font-size: 28px;
+        font-weight: bold;
+        color: var(--text-color);
+        margin-bottom: 10px;
+        text-shadow: 0 0 5px rgba(0, 188, 212, 0.3);
+    }
+    
+    .orientation-bar {
+        width: 200px;
+        height: 6px;
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+        position: relative;
+        margin-bottom: 10px;
+    }
+    
+    .orientation-indicator {
+        height: 100%;
+        background-color: var(--primary);
+        border-radius: 3px;
+        transition: width 0.3s ease;
+        box-shadow: 0 0 10px rgba(0, 188, 212, 0.5);
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+    
+    /* Compass Styles */
+    .orientation-compass {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(0, 188, 212, 0.1), rgba(0, 0, 0, 0.3));
+        border: 2px solid var(--primary);
+        position: relative;
+        margin-top: 10px;
+    }
+    
+    .compass-needle {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 2px;
+        height: 30px;
+        background: linear-gradient(to bottom, #ff4444, #fff);
+        border-radius: 1px;
+        transform-origin: bottom center;
+        transition: transform 0.3s ease;
+        box-shadow: 0 0 5px rgba(255, 68, 68, 0.5);
+    }
+    
+    .compass-labels {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+    }
+    
+    .compass-n, .compass-s, .compass-e, .compass-w {
+        position: absolute;
+        font-size: 12px;
+        font-weight: bold;
+        color: var(--text-color);
+    }
+    
+    .compass-n { top: 5px; left: 50%; transform: translateX(-50%); }
+    .compass-s { bottom: 5px; left: 50%; transform: translateX(-50%); }
+    .compass-e { right: 5px; top: 50%; transform: translateY(-50%); }
+    .compass-w { left: 5px; top: 50%; transform: translateY(-50%); }
+    
     /* Responsive design */
     @media (max-width: 500px) {
         .grid-container {
@@ -332,17 +454,20 @@ const char *HTML_PAGE = R"rawliteral(
         font-size: 1.8rem;
         }
         
-        .chart-grid {
-        grid-template-columns: 1fr;
-        grid-gap: 10px;
+        .orientation-section {
+        max-width: 100%;
         }
         
-        .chart-section {
-        height: 250px;
+        .orientation-section {
+        min-height: 200px;
         }
         
         .chart-container {
         padding: 15px;
+        }
+        
+        .orientation-bar {
+        width: 150px;
         }
     }
     </style>
@@ -398,18 +523,42 @@ const char *HTML_PAGE = R"rawliteral(
 
     </div>
     
-    <!-- Live Charts Panel -->
+    <!-- Live Orientation Panel -->
     <div class="chart-container">
-        <div class="chart-title">Live IMU Charts</div>
+        <div class="chart-title">Robot Orientation</div>
         <div class="connection-status disconnected" id="ws-status">WebSocket Disconnected</div>
-        <div class="chart-grid">
-            <div class="chart-section">
-                <h3>Accelerometer (g)</h3>
-                <canvas id="accelChart" class="chart-canvas"></canvas>
-            </div>
-            <div class="chart-section">
-                <h3>Gyroscope (°/s)</h3>
-                <canvas id="gyroChart" class="chart-canvas"></canvas>
+        <div class="orientation-grid">
+            <div class="orientation-section">
+                <h3>Orientation Values</h3>
+                <div class="orientation-values">
+                    <div class="orientation-item">
+                        <div class="orientation-label">ROLL</div>
+                        <div class="orientation-value" id="roll-value">0.0°</div>
+                        <div class="orientation-bar">
+                            <div class="orientation-indicator" id="roll-indicator"></div>
+                        </div>
+                    </div>
+                    <div class="orientation-item">
+                        <div class="orientation-label">PITCH</div>
+                        <div class="orientation-value" id="pitch-value">0.0°</div>
+                        <div class="orientation-bar">
+                            <div class="orientation-indicator" id="pitch-indicator"></div>
+                        </div>
+                    </div>
+                    <div class="orientation-item">
+                        <div class="orientation-label">YAW</div>
+                        <div class="orientation-value" id="yaw-value">0.0°</div>
+                        <div class="orientation-compass" id="yaw-compass">
+                            <div class="compass-needle"></div>
+                            <div class="compass-labels">
+                                <span class="compass-n">N</span>
+                                <span class="compass-s">S</span>
+                                <span class="compass-e">E</span>
+                                <span class="compass-w">W</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -441,9 +590,6 @@ const char *HTML_PAGE = R"rawliteral(
                 .then(response => response.text())
                 .then(data => {
                     console.log(`Command sent: ${dir} (Seq: ${currentSeq}), Response: ${data}`);
-                    // Optional: Update status immediately based on command sent
-                    // document.getElementById('status').innerText = `Command: ${dir}`; 
-                    // updateStatus(); // Update status after sending command (might be delayed)
                 })
                 .catch(error => {
                     console.error(`Error sending command ${dir} (Seq: ${currentSeq}):`, error);
@@ -515,217 +661,32 @@ const char *HTML_PAGE = R"rawliteral(
             }
         }
             
-        // --- WebSocket Functions for IMU Data ---
+        // --- WebSocket Functions for Orientation Data ---
         let ws = null;
         let wsReconnectTimeout = null;
         
-        // --- Chart Configuration ---
-        let accelChart = null;
-        let gyroChart = null;
-        const MAX_DATA_POINTS = 50; // Keep last 50 data points for performance
-        let startTime = null; // Track start time for relative timestamps
-        
-        // Chart data storage
-        const chartData = {
-            labels: [],
-            accel: { x: [], y: [], z: [] },
-            gyro: { x: [], y: [], z: [] }
-        };
-        
-        function initCharts() {
-            const accelCtx = document.getElementById('accelChart').getContext('2d');
-            const gyroCtx = document.getElementById('gyroChart').getContext('2d');
+        // --- Orientation Display Functions ---
+        function updateOrientationDisplay(roll, pitch, yaw) {
+            // Update numerical values
+            document.getElementById('roll-value').textContent = `${roll.toFixed(1)}°`;
+            document.getElementById('pitch-value').textContent = `${pitch.toFixed(1)}°`;
+            document.getElementById('yaw-value').textContent = `${yaw.toFixed(1)}°`;
             
-            const chartOptions = {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false, // Disable animations for better performance
-                scales: {
-                    x: {
-                        type: 'linear',
-                        position: 'bottom',
-                        title: {
-                            display: true,
-                            text: 'Time (s)',
-                            color: '#e0e0e0'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        },
-                        ticks: {
-                            color: '#e0e0e0',
-                            callback: function(value, index, values) {
-                                // Format timestamp to show only 1 decimal place
-                                return Number(value).toFixed(1);
-                            }
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            color: '#e0e0e0'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        },
-                        ticks: {
-                            color: '#e0e0e0'
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        labels: {
-                            color: '#e0e0e0'
-                        }
-                    }
-                }
-            };
+            // Update roll indicator bar (±180 degrees mapped to ±100% width)
+            const rollIndicator = document.getElementById('roll-indicator');
+            const rollPercent = Math.max(0, Math.min(100, Math.abs(roll) / 180 * 100));
+            rollIndicator.style.width = `${rollPercent}%`;
+            rollIndicator.style.backgroundColor = Math.abs(roll) > 45 ? '#ff4444' : 'var(--primary)';
             
-            // Accelerometer chart
-            accelChart = new Chart(accelCtx, {
-                type: 'line',
-                data: {
-                    datasets: [
-                        {
-                            label: 'Front/Back (X)',
-                            data: [],
-                            borderColor: '#ff6b6b',
-                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            tension: 0.1
-                        },
-                        {
-                            label: 'Side (Y)',
-                            data: [],
-                            borderColor: '#4ecdc4',
-                            backgroundColor: 'rgba(78, 205, 196, 0.1)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            tension: 0.1
-                        },
-                        {
-                            label: 'Up/Down (Z)',
-                            data: [],
-                            borderColor: '#9b59b6',
-                            backgroundColor: 'rgba(155, 89, 182, 0.1)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            tension: 0.1
-                        }
-                    ]
-                },
-                options: {
-                    ...chartOptions,
-                    scales: {
-                        ...chartOptions.scales,
-                        y: {
-                            ...chartOptions.scales.y,
-                            title: {
-                                display: true,
-                                text: 'Acceleration (g)',
-                                color: '#e0e0e0'
-                            }
-                        }
-                    }
-                }
-            });
+            // Update pitch indicator bar (±90 degrees mapped to ±100% width)
+            const pitchIndicator = document.getElementById('pitch-indicator');
+            const pitchPercent = Math.max(0, Math.min(100, Math.abs(pitch) / 90 * 100));
+            pitchIndicator.style.width = `${pitchPercent}%`;
+            pitchIndicator.style.backgroundColor = Math.abs(pitch) > 30 ? '#ff4444' : 'var(--primary)';
             
-            // Gyroscope chart
-            gyroChart = new Chart(gyroCtx, {
-                type: 'line',
-                data: {
-                    datasets: [
-                        {
-                            label: 'Roll (X)',
-                            data: [],
-                            borderColor: '#ff6b6b',
-                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            tension: 0.1
-                        },
-                        {
-                            label: 'Pitch (Y)',
-                            data: [],
-                            borderColor: '#4ecdc4',
-                            backgroundColor: 'rgba(78, 205, 196, 0.1)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            tension: 0.1
-                        },
-                        {
-                            label: 'Yaw (Z)',
-                            data: [],
-                            borderColor: '#9b59b6',
-                            backgroundColor: 'rgba(155, 89, 182, 0.1)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            tension: 0.1
-                        }
-                    ]
-                },
-                options: {
-                    ...chartOptions,
-                    scales: {
-                        ...chartOptions.scales,
-                        y: {
-                            ...chartOptions.scales.y,
-                            title: {
-                                display: true,
-                                text: 'Angular Velocity (°/s)',
-                                color: '#e0e0e0'
-                            }
-                        }
-                    }
-                }
-            });
-        }
-        
-        function updateCharts(timestamp, ax, ay, az, gx, gy, gz) {
-            // Initialize start time on first data point
-            if (startTime === null) {
-                startTime = timestamp;
-            }
-            
-            // Calculate relative time in seconds
-            const relativeTime = timestamp - startTime;
-            
-            // Add new data points
-            chartData.labels.push(relativeTime);
-            chartData.accel.x.push({ x: relativeTime, y: ax });
-            chartData.accel.y.push({ x: relativeTime, y: ay });
-            chartData.accel.z.push({ x: relativeTime, y: az });
-            chartData.gyro.x.push({ x: relativeTime, y: gx });
-            chartData.gyro.y.push({ x: relativeTime, y: gy });
-            chartData.gyro.z.push({ x: relativeTime, y: gz });
-            
-            // Remove old data points to maintain performance
-            if (chartData.labels.length > MAX_DATA_POINTS) {
-                chartData.labels.shift();
-                chartData.accel.x.shift();
-                chartData.accel.y.shift();
-                chartData.accel.z.shift();
-                chartData.gyro.x.shift();
-                chartData.gyro.y.shift();
-                chartData.gyro.z.shift();
-            }
-            
-            // Update chart data
-            if (accelChart) {
-                accelChart.data.datasets[0].data = chartData.accel.x;
-                accelChart.data.datasets[1].data = chartData.accel.y;
-                accelChart.data.datasets[2].data = chartData.accel.z;
-                accelChart.update('none'); // 'none' mode for better performance
-            }
-            
-            if (gyroChart) {
-                gyroChart.data.datasets[0].data = chartData.gyro.x;
-                gyroChart.data.datasets[1].data = chartData.gyro.y;
-                gyroChart.data.datasets[2].data = chartData.gyro.z;
-                gyroChart.update('none');
-            }
+            // Update compass needle (yaw)
+            const compassNeedle = document.querySelector('.compass-needle');
+            compassNeedle.style.transform = `translateX(-50%) rotate(${yaw}deg)`;
         }
         
         function initWebSocket() {
@@ -749,8 +710,11 @@ const char *HTML_PAGE = R"rawliteral(
             ws.onmessage = function(event) {
                 try {
                     const data = JSON.parse(event.data);
-                    if (data.type === 'imu') {
-                        updateIMUDisplay(data);
+                    if (data.type === 'imu_orientation') {
+                        updateOrientationDisplay(data.roll, data.pitch, data.yaw);
+                    } else if (data.type === 'imu') {
+                        // Legacy support for raw IMU data (fallback)
+                        console.log('Received legacy raw IMU data - orientation fusion not available');
                     }
                 } catch (error) {
                     console.error('Error parsing WebSocket message:', error);
@@ -783,12 +747,6 @@ const char *HTML_PAGE = R"rawliteral(
                 statusElement.className = 'connection-status disconnected';
             }
         }
-        
-        function updateIMUDisplay(data) {
-            // Update charts
-            const currentTime = Date.now() / 1000; // Convert to seconds
-            updateCharts(currentTime, data.ax, data.ay, data.az, data.gx, data.gy, data.gz);
-        }
             
         // --- Status Update Functions ---
         function updateStatus() {
@@ -803,7 +761,6 @@ const char *HTML_PAGE = R"rawliteral(
                 })
                 .catch(error => {
                     // Avoid logging errors too frequently if connection is lost
-                    // console.error('Error fetching status:', error); 
                     const statusDiv = document.getElementById('status');
                         if (!statusDiv.innerText.startsWith('Error loading status') && !statusDiv.innerText.startsWith('Communication error')) {
                             statusDiv.innerText = 'Error loading status information';
@@ -819,9 +776,6 @@ const char *HTML_PAGE = R"rawliteral(
         // --- Event Listener Setup ---
         window.addEventListener('DOMContentLoaded', (event) => {
             console.log('DOM fully loaded and parsed');
-            
-            // Initialize charts
-            initCharts();
             
             // Add listeners to motor control buttons
             document.querySelectorAll('.motor-btn').forEach(button => {
@@ -878,11 +832,10 @@ const char *HTML_PAGE = R"rawliteral(
                     handleRelease(); // Treat click as a release event
             });
 
-
             // Add listener for OTA button
                 document.getElementById('btn-ota').addEventListener('click', startOta);
 
-            // Initialize WebSocket for IMU data
+            // Initialize WebSocket for orientation data
             initWebSocket();
 
             // Start status updates

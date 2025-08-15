@@ -12,10 +12,13 @@
 /*      and any headers needed for function bodies, static variables, etc.     */
 /*******************************************************************************/
 /* ESP-IDF Includes */
+#include <stdio.h>
+#include <math.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_err.h"
 #include "madgwick_filter.hpp"
 
 /* Project Includes */
@@ -159,6 +162,14 @@ typedef struct
     float gz; // Gyroscope Z-axis value in dps
 } imu_sensor_data_t;
 
+/* Data structure to hold fused IMU orientation data */
+typedef struct
+{
+    float roll;  // Roll angle in degrees
+    float pitch; // Pitch angle in degrees
+    float yaw;   // Yaw angle in degrees
+} imu_orientation_t;
+
 
 /*******************************************************************************/
 /*                     GLOBAL VARIABLES DECLARATIONS                           */
@@ -191,6 +202,15 @@ static const float GYRO_SENSITIVITY = 16.0f;    // LSB/dps for ±2048dps
 
 /* Sensitivity for magnetic field conversion */
 static const float MAG_SENSITIVITY = 0.15f; // μT/LSB (typical)
+
+/* Madgwick filter instance for sensor fusion */
+static espp::MadgwickFilter madgwick_filter(0.1f); // Beta gain of 0.1
+
+/* Shared magnetometer data for sensor fusion */
+static float magnetometer_x = 0.0f;
+static float magnetometer_y = 0.0f;
+static float magnetometer_z = 0.0f;
+static bool magnetometer_data_available = false;
 
 /*******************************************************************************/
 /*                     STATIC FUNCTION DECLARATIONS                            */
@@ -401,6 +421,15 @@ static esp_err_t ak09918_get_magnetic_data(float *mx, float *my, float *mz);
  */
 static void task_read_ak09918_data(void* pvParameters);
 
+/**
+ * @brief Update the shared magnetometer data from AK09918.
+ * This function reads magnetometer data and updates the shared variables
+ * used by the sensor fusion algorithm.
+ *
+ * @return ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t update_magnetometer_data(void);
+
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
@@ -420,15 +449,6 @@ esp_err_t imu_init(void)
     {
         return init_status;
     }
-
-    /* TODO - do IMU Sensor Fusion - look into Kalman Filters */
-    /* ChatGPT: use a lightweight AHRS (Madgwick or Mahony) for orientation, and an EKF (or TinyEKF) to fuse that orientation with wheel odometry for full pose.
-        Madgwick gives the best tradeoff for an ESP32 if you only need attitude; combine Madgwick + a small EKF on the same MCU if you need x/y/θ fused with encoders.*/
-
-    /* Grok: the Madgwick filter stands out as the best for your ESP32-based 4-wheel mobile robot.*/
-
-    /* So Madgwick it is? TODO */
-
 
     return ESP_OK;
 }
@@ -743,11 +763,20 @@ static void task_read_qmi8658_data(void* pvParameters)
     char log_buffer[128]; // Buffer for formatted log messages
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
-
+    
+    /* Time tracking for sensor fusion */
+    TickType_t previous_time = xTaskGetTickCount();
+    
     /********************* Task Loop ***************************/
     while (1)
     {
         static imu_sensor_data_t sensor_data;
+        imu_orientation_t orientation;
+
+        /* Calculate delta time for sensor fusion */
+        TickType_t current_time = xTaskGetTickCount();
+        float dt = (float)(current_time - previous_time) * portTICK_PERIOD_MS / 1000.0f;
+        previous_time = current_time;
 
         /* Acquire sensor data from QMI8658C */
         esp_err_t sensor_status = qmi8658_get_sensor_data(&sensor_data);
@@ -760,10 +789,32 @@ static void task_read_qmi8658_data(void* pvParameters)
                 web_server_print("IMU: Failed to calibrate gyroscope data");
             }
 
-            /* --- Step 4: Use the processed data --- */
-            /* Broadcast live IMU data over WebSocket */
-            web_server_ws_broadcast_imu(sensor_data.ax, sensor_data.ay, sensor_data.az,
-                                        sensor_data.gx, sensor_data.gy, sensor_data.gz);
+            /* Convert gyroscope data from degrees per second to radians per second */
+            float gx_rad = sensor_data.gx * M_PI / 180.0f;
+            float gy_rad = sensor_data.gy * M_PI / 180.0f;
+            float gz_rad = sensor_data.gz * M_PI / 180.0f;
+
+            /* Use magnetometer data if available, otherwise use IMU-only mode */
+            if (magnetometer_data_available)
+            {
+                /* Full 9-DOF sensor fusion with magnetometer */
+                madgwick_filter.update(dt, sensor_data.ax, sensor_data.ay, sensor_data.az,
+                                     gx_rad, gy_rad, gz_rad,
+                                     magnetometer_x, magnetometer_y, magnetometer_z);
+            }
+            else
+            {
+                /* 6-DOF sensor fusion without magnetometer */
+                madgwick_filter.update(dt, sensor_data.ax, sensor_data.ay, sensor_data.az,
+                                     gx_rad, gy_rad, gz_rad);
+            }
+
+            /* Get the fused orientation as Euler angles */
+            /* Note: Swapped roll and pitch due to coordinate system conventions - TODO - find out why did we have to swap these */
+            madgwick_filter.get_euler(orientation.roll, orientation.pitch, orientation.yaw);
+
+            /* Broadcast the fused orientation data over WebSocket */
+            web_server_ws_broadcast_imu_orientation(orientation.roll, orientation.pitch, orientation.yaw);
         }
         else
         {
@@ -1057,6 +1108,30 @@ static esp_err_t ak09918_get_magnetic_data(float *mx, float *my, float *mz)
     return ESP_OK;
 }
 
+static esp_err_t update_magnetometer_data(void)
+{
+    float mx, my, mz;
+    
+    /* Acquire magnetometer data from AK09918 */
+    esp_err_t sensor_status = ak09918_get_magnetic_data(&mx, &my, &mz);
+    
+    if (sensor_status == ESP_OK)
+    {
+        /* Update the shared magnetometer data */
+        magnetometer_x = mx;
+        magnetometer_y = my;
+        magnetometer_z = mz;
+        magnetometer_data_available = true;
+    }
+    else
+    {
+        /* Mark magnetometer data as unavailable on error */
+        magnetometer_data_available = false;
+    }
+    
+    return sensor_status;
+}
+
 static void task_read_ak09918_data(void* pvParameters) 
 {
     /********************* Task Initialization ***************************/ 
@@ -1066,20 +1141,10 @@ static void task_read_ak09918_data(void* pvParameters)
     /********************* Task Loop ***************************/
     while (1)
     {
-        float mx, my, mz;
+        /* Update shared magnetometer data for sensor fusion */
+        esp_err_t sensor_status = update_magnetometer_data();
 
-        /* Acquire magnetometer data from AK09918 */
-        esp_err_t sensor_status = ak09918_get_magnetic_data(&mx, &my, &mz);
-
-        /* TODO - instead of just printing, use the data somehow */
-
-        if (sensor_status == ESP_OK)
-        {
-            /* Print magnetometer data */
-            snprintf(log_buffer, sizeof(log_buffer), "IMU: Magnetometer - X: %.2f μT, Y: %.2f μT, Z: %.2f μT", mx, my, mz);
-            web_server_print(log_buffer);
-        }
-        else
+        if (sensor_status != ESP_OK)
         {
             snprintf(log_buffer, sizeof(log_buffer), "IMU: Failed to read magnetometer data: %s", esp_err_to_name(sensor_status));
             web_server_print(log_buffer);

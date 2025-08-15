@@ -84,7 +84,14 @@ esp_err_t web_server_get_ip(char *ip_buffer, size_t buffer_size);
  */
 bool web_server_is_connected(void);
 
-void web_server_ws_broadcast_imu(float ax, float ay, float az, float gx, float gy, float gz);
+/**
+ * @brief Broadcasts the current IMU orientation over WebSocket.
+ *
+ * @param roll The roll angle in degrees.
+ * @param pitch The pitch angle in degrees.
+ * @param yaw The yaw angle in degrees.
+ */
+void web_server_ws_broadcast_imu_orientation(float roll, float pitch, float yaw);
 
 #ifdef __cplusplus
 }
