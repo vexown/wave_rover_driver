@@ -147,6 +147,27 @@
 #define TASK_READ_AK09918_DATA_STACK_SIZE 4096 // Stack size in bytes
 #define TASK_READ_AK09918_DATA_PERIOD_TICKS pdMS_TO_TICKS(50) // Task period in ticks (50 ms)
 
+/* Beta Gain values for Madgwick IMU sensor fusion algorithm */
+/* Default values from Madgwick's paper */
+#define BETA_IMU_DEFAULT 0.033f    // Default for IMU (gyro + accelerometer)
+#define BETA_MARG_DEFAULT 0.041f   // Default for MARG (gyro + accel + mag)
+/* Beta gain values for Madgwick MARG sensor fusion with QMI8658C + AK09918
+ * Calculated using gyro noise density 0.015 dps/√Hz, BW = 0.1337 * ODR (gLPF_MODE = 11, 13.37%), and +25% uplift for MARG setup
+ * Derivation: σ = 0.015 * √(BW), ˜ω_β = σ * (π / 180), β = √(3/4) * ˜ω_β * 1.25
+ * Values tailored to datasheet ODRs; tune empirically with static gyro data */
+#define BETA_MARG_7520HZ   0.0089f   // For ODR=7520 Hz, BW≈1005.42 Hz, σ≈0.475 dps, ˜ω_β≈0.00829 rad/s, β≈0.0072 (IMU) → 0.0089 (MARG)
+#define BETA_MARG_3760HZ   0.0063f   // For ODR=3760 Hz, BW≈502.71 Hz, σ≈0.336 dps, ˜ω_β≈0.00586 rad/s, β≈0.0051 (IMU) → 0.0063 (MARG)
+#define BETA_MARG_1880HZ   0.0045f   // For ODR=1880 Hz, BW≈251.36 Hz, σ≈0.238 dps, ˜ω_β≈0.00415 rad/s, β≈0.0036 (IMU) → 0.0045 (MARG)
+#define BETA_MARG_940HZ    0.0032f   // For ODR=940 Hz, BW≈125.64 Hz, σ≈0.171 dps, ˜ω_β≈0.00298 rad/s, β≈0.0026 (IMU) → 0.0032 (MARG)
+#define BETA_MARG_470HZ    0.0023f   // For ODR=470 Hz, BW≈62.84 Hz, σ≈0.122 dps, ˜ω_β≈0.00213 rad/s, β≈0.0018 (IMU) → 0.0023 (MARG)
+#define BETA_MARG_235HZ    0.0016f   // For ODR=235 Hz, BW≈31.42 Hz, σ≈0.087 dps, ˜ω_β≈0.00152 rad/s, β≈0.0013 (IMU) → 0.0016 (MARG)
+#define BETA_MARG_117_5HZ  0.0011f   // For ODR=117.5 Hz, BW≈15.71 Hz, σ≈0.062 dps, ˜ω_β≈0.00108 rad/s, β≈0.0009 (IMU) → 0.0011 (MARG)
+#define BETA_MARG_58_75HZ  0.0008f   // For ODR=58.75 Hz, BW≈7.86 Hz, σ≈0.044 dps, ˜ω_β≈0.00077 rad/s, β≈0.0007 (IMU) → 0.0008 (MARG)
+#define BETA_MARG_29_375HZ 0.0006f   // For ODR=29.375 Hz, BW≈3.93 Hz, σ≈0.031 dps, ˜ω_β≈0.00054 rad/s, β≈0.0005 (IMU) → 0.0006 (MARG)
+
+/* Initialization beta for faster startup convergence (10x the 940Hz value) */
+#define BETA_MARG_INIT     0.0320f
+
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
@@ -204,7 +225,8 @@ static const float GYRO_SENSITIVITY = 16.0f;    // LSB/dps for ±2048dps
 static const float MAG_SENSITIVITY = 0.15f; // μT/LSB (typical)
 
 /* Madgwick filter instance for sensor fusion */
-static espp::MadgwickFilter madgwick_filter(0.1f); // Beta gain of 0.1
+static const float CURRENT_BETA = BETA_MARG_940HZ;
+static espp::MadgwickFilter madgwick_filter(CURRENT_BETA);
 
 /* Shared magnetometer data for sensor fusion */
 static float magnetometer_x = 0.0f;
