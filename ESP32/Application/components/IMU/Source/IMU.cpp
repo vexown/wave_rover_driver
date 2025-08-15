@@ -139,10 +139,10 @@
 /* FreeRTOS task configuration */
 #define TASK_READ_QMI8658_DATA_PRIORITY (tskIDLE_PRIORITY + 1)
 #define TASK_READ_QMI8658_DATA_STACK_SIZE 4096 // Stack size in bytes
-#define TASK_READ_QMI8658_DATA_PERIOD_TICKS pdMS_TO_TICKS(100) // Task period in ticks (100 ms)
+#define TASK_READ_QMI8658_DATA_PERIOD_TICKS pdMS_TO_TICKS(50) // Task period in ticks (50 ms)
 #define TASK_READ_AK09918_DATA_PRIORITY (tskIDLE_PRIORITY + 1)
 #define TASK_READ_AK09918_DATA_STACK_SIZE 4096 // Stack size in bytes
-#define TASK_READ_AK09918_DATA_PERIOD_TICKS pdMS_TO_TICKS(100) // Task period in ticks (100 ms)
+#define TASK_READ_AK09918_DATA_PERIOD_TICKS pdMS_TO_TICKS(50) // Task period in ticks (50 ms)
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
