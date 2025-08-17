@@ -148,6 +148,20 @@
 #define TASK_READ_AK09918_DATA_PERIOD_TICKS pdMS_TO_TICKS(50) // Task period in ticks (50 ms)
 
 /* Beta Gain values for Madgwick IMU sensor fusion algorithm */
+/* This parameter controls the trade-off between trusting gyroscope data
+ * (for smooth, short-term accuracy) and accelerometer/magnetometer corrections
+ * (for long-term drift prevention).
+ * 
+ *      Increase beta: Faster correction of gyro drift, better for dynamic systems
+ *                     with reliable acc/mag sensors, but may amplify sensor noise or disturbances.
+ *      Decrease beta: Smoother, more stable output relying more on gyro integration, ideal for
+ *                     low-noise gyros but risks gradual orientation drift over time.
+ *
+ * Tune by starting with ~0.04 (per Madgwick's paper), test in your setup, and
+ * adjust based on observed drift vs. noise in orientation estimates.
+ * 
+ * If orientation drifts over time, INCREASE beta. If orientation is too jittery during movement, DECREASE beta. */
+
 /* Default values from Madgwick's paper: https://courses.cs.washington.edu/courses/cse466/14au/labs/l4/madgwick_internal_report.pdf */
 #define BETA_IMU_DEFAULT 0.033f    // Default for IMU (gyro + accelerometer)
 #define BETA_MARG_DEFAULT 0.041f   // Default for MARG (gyro + accel + mag)
