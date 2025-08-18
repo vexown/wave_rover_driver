@@ -19,12 +19,12 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_err.h"
-#include "madgwick_filter.hpp"
 
 /* Project Includes */
 #include "IMU.h"
 #include "i2c_manager.h"
 #include "web_server.h"
+#include "Fusion.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -147,6 +147,9 @@
 #define TASK_READ_AK09918_DATA_STACK_SIZE 4096 // Stack size in bytes
 #define TASK_READ_AK09918_DATA_PERIOD_TICKS pdMS_TO_TICKS(50) // Task period in ticks (50 ms)
 
+/* Fusion AHRS algorithm settings */
+/* Sample period matches the task period (50ms = 0.05s) */
+#define FUSION_SAMPLE_PERIOD 0.05f
 /* Beta Gain values for Madgwick IMU sensor fusion algorithm */
 /* This parameter controls the trade-off between trusting gyroscope data
  * (for smooth, short-term accuracy) and accelerometer/magnetometer corrections
@@ -162,11 +165,18 @@
  * 
  * If orientation drifts over time, INCREASE beta. If orientation is too jittery during movement, DECREASE beta. */
 
-/* Default values from Madgwick's paper: https://courses.cs.washington.edu/courses/cse466/14au/labs/l4/madgwick_internal_report.pdf */
+/* Default values from Madgwick's paper: https://courses.cs.washington.edu/courses/cse466/14au/labs/l4/madgwick_internal_report.pdf
 #define BETA_IMU_DEFAULT 0.033f    // Default for IMU (gyro + accelerometer)
-#define BETA_MARG_DEFAULT 0.041f   // Default for MARG (gyro + accel + mag)
-/* Best value determined empirically */
-#define BETA_MARG_BEST 0.015f
+#define BETA_MARG_DEFAULT 0.041f   // Default for MARG (gyro + accel + mag) */
+#define FUSION_GAIN 0.5f
+/* Gyroscope range in degrees per second (matches our ±2048 dps setting) */
+#define FUSION_GYRO_RANGE 2048.0f
+/* Acceleration rejection threshold - ignores accelerometer during high acceleration */
+#define FUSION_ACCEL_REJECTION 10.0f
+/* Magnetic rejection threshold - ignores magnetometer during magnetic interference */
+#define FUSION_MAGNETIC_REJECTION 10.0f
+/* Recovery trigger period - 5 seconds worth of samples at 20Hz */
+#define FUSION_RECOVERY_TRIGGER_PERIOD (5 * (1000 / 50))
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
@@ -224,9 +234,9 @@ static const float GYRO_SENSITIVITY = 16.0f;    // LSB/dps for ±2048dps
 /* Sensitivity for magnetic field conversion */
 static const float MAG_SENSITIVITY = 0.15f; // μT/LSB (typical)
 
-/* Madgwick filter instance for sensor fusion */
-static const float CURRENT_BETA = BETA_MARG_BEST;
-static espp::MadgwickFilter madgwick_filter(CURRENT_BETA);
+/* Fusion AHRS instances for sensor fusion */
+static FusionOffset fusion_offset;
+static FusionAhrs fusion_ahrs;
 
 /* Shared magnetometer data for sensor fusion */
 static float magnetometer_x = 0.0f;
@@ -237,6 +247,15 @@ static bool magnetometer_data_available = false;
 /*******************************************************************************/
 /*                     STATIC FUNCTION DECLARATIONS                            */
 /*******************************************************************************/
+
+/**
+ * @brief Initialize the Fusion AHRS algorithm.
+ * This function initializes the Fusion offset correction and AHRS algorithms
+ * with appropriate settings for our IMU configuration.
+ * 
+ * @return ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t fusion_init(void);
 
 /**
  * @brief Initialize the IMU component.
@@ -460,6 +479,13 @@ esp_err_t imu_init(void)
 {
     esp_err_t init_status = ESP_OK;
 
+    /* Initialize Fusion AHRS algorithm */
+    init_status = fusion_init();
+    if (init_status != ESP_OK)
+    {
+        return init_status;
+    }
+
     init_status = qmi8658_init();
     if (init_status != ESP_OK)
     {
@@ -478,6 +504,35 @@ esp_err_t imu_init(void)
 /*******************************************************************************/
 /*                     STATIC FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
+
+static esp_err_t fusion_init(void)
+{
+    char log_buffer[256]; // Buffer for formatted log messages
+    
+    /* Initialize Fusion offset algorithm */
+    /* Sample rate is 20Hz (1000ms / 50ms task period) */
+    const unsigned int sample_rate = 1000 / 50; // 20 Hz
+    FusionOffsetInitialise(&fusion_offset, sample_rate);
+    
+    /* Initialize Fusion AHRS algorithm */
+    FusionAhrsInitialise(&fusion_ahrs);
+    
+    /* Configure AHRS settings */
+    const FusionAhrsSettings settings = {
+        .convention = FusionConventionNwu,                    // North-West-Up coordinate system
+        .gain = FUSION_GAIN,                                  // Algorithm gain (0.5f)
+        .gyroscopeRange = FUSION_GYRO_RANGE,                  // Gyroscope range in degrees/s (2048.0f)
+        .accelerationRejection = FUSION_ACCEL_REJECTION,      // Acceleration rejection threshold (10.0f)
+        .magneticRejection = FUSION_MAGNETIC_REJECTION,       // Magnetic rejection threshold (10.0f)
+        .recoveryTriggerPeriod = FUSION_RECOVERY_TRIGGER_PERIOD, // Recovery trigger period (5 seconds)
+    };
+    FusionAhrsSetSettings(&fusion_ahrs, &settings);
+    
+    snprintf(log_buffer, sizeof(log_buffer), "IMU: Fusion AHRS initialized successfully with gain=%.2f", FUSION_GAIN);
+    web_server_print(log_buffer);
+    
+    return ESP_OK;
+}
 
 static esp_err_t qmi8658_init(void) 
 {
@@ -786,19 +841,11 @@ static void task_read_qmi8658_data(void* pvParameters)
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
     
-    /* Time tracking for sensor fusion */
-    TickType_t previous_time = xTaskGetTickCount();
-    
     /********************* Task Loop ***************************/
     while (1)
     {
         static imu_sensor_data_t sensor_data;
         imu_orientation_t orientation;
-
-        /* Calculate delta time for sensor fusion */
-        TickType_t current_time = xTaskGetTickCount();
-        float dt = (float)(current_time - previous_time) * portTICK_PERIOD_MS / 1000.0f;
-        previous_time = current_time;
 
         /* Acquire sensor data from QMI8658C */
         esp_err_t sensor_status = qmi8658_get_sensor_data(&sensor_data);
@@ -811,30 +858,36 @@ static void task_read_qmi8658_data(void* pvParameters)
                 web_server_print("IMU: Failed to calibrate gyroscope data");
             }
 
-            /* Convert gyroscope data from degrees per second to radians per second */
-            float gx_rad = sensor_data.gx * M_PI / 180.0f;
-            float gy_rad = sensor_data.gy * M_PI / 180.0f;
-            float gz_rad = sensor_data.gz * M_PI / 180.0f;
+            /* Create Fusion vectors from sensor data */
+            /* Note: Fusion expects gyroscope data in degrees/s (not radians) */
+            FusionVector gyroscope = {sensor_data.gx, sensor_data.gy, sensor_data.gz};
+            FusionVector accelerometer = {sensor_data.ax, sensor_data.ay, sensor_data.az};
+            FusionVector magnetometer = {magnetometer_x, magnetometer_y, magnetometer_z};
 
-            /* Use magnetometer data if available, otherwise use IMU-only mode */
+            /* Apply Fusion offset correction to gyroscope (handles bias/drift) */
+            gyroscope = FusionOffsetUpdate(&fusion_offset, gyroscope);
+
+            /* Perform sensor fusion using appropriate method */
             if (magnetometer_data_available)
             {
                 /* Full 9-DOF sensor fusion with magnetometer */
-                madgwick_filter.update(dt, sensor_data.ax, sensor_data.ay, sensor_data.az,
-                                     gx_rad, gy_rad, gz_rad,
-                                     magnetometer_x, magnetometer_y, magnetometer_z);
+                FusionAhrsUpdate(&fusion_ahrs, gyroscope, accelerometer, magnetometer, FUSION_SAMPLE_PERIOD);
             }
             else
             {
                 /* 6-DOF sensor fusion without magnetometer */
-                madgwick_filter.update(dt, sensor_data.ax, sensor_data.ay, sensor_data.az,
-                                     gx_rad, gy_rad, gz_rad);
+                FusionAhrsUpdateNoMagnetometer(&fusion_ahrs, gyroscope, accelerometer, FUSION_SAMPLE_PERIOD);
             }
 
             /* Get the fused orientation as Euler angles */
-            /* Note: Swapped roll and pitch due to coordinate system conventions - TODO - find out why did we have to swap these */
-            /* TODO - fix Yaw absolute north orientation and drift and stuff */
-            madgwick_filter.get_euler(orientation.roll, orientation.pitch, orientation.yaw);
+            FusionQuaternion quaternion = FusionAhrsGetQuaternion(&fusion_ahrs);
+            FusionEuler euler = FusionQuaternionToEuler(quaternion);
+            
+            /* Convert from Fusion's coordinate system to our orientation structure */
+            /* Note: May need to adjust these mappings based on your coordinate system requirements */
+            orientation.roll = euler.angle.roll;
+            orientation.pitch = euler.angle.pitch;
+            orientation.yaw = euler.angle.yaw;
 
             /* Broadcast the fused orientation data over WebSocket */
             web_server_ws_broadcast_imu_orientation(orientation.roll, orientation.pitch, orientation.yaw);

@@ -1,3 +1,17 @@
 ## IDF Component Manager Manifest File
+#
+# To add a new ESP-IDF component dependency, use the 'dependencies' section.
+#
+# Example:
+# dependencies:
+#   idf: ">=4.4"
+#   espressif/esp_modbus: "^1.0.0"
+#
+# - 'idf' specifies the required ESP-IDF version.
+# - Other entries (like 'espressif/esp_modbus') specify component names and versions.
+#
+# See all the available components and their versions in the ESP-IDF Component Registry:
+# https://components.espressif.com/
+#
 dependencies:
-  espp/filters: "^1.0.19"
+  idf: ">=4.4"
