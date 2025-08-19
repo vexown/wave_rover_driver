@@ -523,10 +523,11 @@ void web_server_ws_broadcast_imu_orientation(float roll, float pitch, float yaw)
         }
     }
     if (ws_clients_mutex) xSemaphoreGive(ws_clients_mutex);
-    
-    /* Log occasionally for debugging (every 50 calls = ~5 seconds at 100ms period) */
+
+    /* Log occasionally for debugging (every 1000 calls = ~50 seconds at 50ms period) */
     static int orientation_debug_counter = 0;
-    if (++orientation_debug_counter >= 50) {
+    if (++orientation_debug_counter >= 1000) 
+    {
         ESP_LOGI(TAG, "Broadcasting IMU orientation data to %d WebSocket clients", active_clients);
         orientation_debug_counter = 0;
     }
@@ -1076,7 +1077,6 @@ static esp_err_t ota_get_handler(httpd_req_t *req)
 
 static esp_err_t print_get_handler(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "Serving status request");
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_send(req, web_server_print_buffer, HTTPD_RESP_USE_STRLEN);
     
