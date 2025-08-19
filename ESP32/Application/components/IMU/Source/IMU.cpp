@@ -25,6 +25,7 @@
 #include "i2c_manager.h"
 #include "web_server.h"
 #include "Fusion.h"
+#include "Common.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -891,6 +892,9 @@ static void task_read_qmi8658_data(void* pvParameters)
 
             /* Broadcast the fused orientation data over WebSocket */
             web_server_ws_broadcast_imu_orientation(orientation.roll, orientation.pitch, orientation.yaw);
+
+            /* Send the fused orientation data to the RPi over UART */
+            LOG_TO_RPI("IMU: Roll: %.2f, Pitch: %.2f, Yaw: %.2f\n", orientation.roll, orientation.pitch, orientation.yaw);
         }
         else
         {
