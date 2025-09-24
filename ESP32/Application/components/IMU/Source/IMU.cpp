@@ -893,8 +893,11 @@ static void task_read_qmi8658_data(void* pvParameters)
             /* Broadcast the fused orientation data over WebSocket */
             web_server_ws_broadcast_imu_orientation(orientation.roll, orientation.pitch, orientation.yaw);
 
-            /* Send the fused orientation data to the RPi over UART */
-            LOG_TO_RPI("IMU: Roll: %.2f, Pitch: %.2f, Yaw: %.2f\n", orientation.roll, orientation.pitch, orientation.yaw);
+            /* Send the full IMU data to the RPi over UART */
+            LOG_TO_RPI("IMU: Roll: %.2f, Pitch: %.2f, Yaw: %.2f, GyroX: %.2f, GyroY: %.2f, GyroZ: %.2f, AccelX: %.2f, AccelY: %.2f, AccelZ: %.2f\n", 
+                       orientation.roll, orientation.pitch, orientation.yaw,
+                       sensor_data.gx, sensor_data.gy, sensor_data.gz,
+                       sensor_data.ax, sensor_data.ay, sensor_data.az);
         }
         else
         {
