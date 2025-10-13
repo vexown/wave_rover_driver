@@ -108,6 +108,10 @@
  * This means that the PWM signal will toggle at this frequency, allowing for smooth control of the motor speed. */
 #define LEDC_FREQUENCY              (100000)   
 
+/* FreeRTOS Task defines */
+#define MOTOR_TASK_STACK_SIZE       (4096)
+#define MOTOR_TASK_PRIORITY         (tskIDLE_PRIORITY + 5)
+
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
@@ -133,6 +137,17 @@
 /*******************************************************************************/
 /*                     STATIC FUNCTION DECLARATIONS                            */
 /*******************************************************************************/
+
+/**
+ * @brief Task to handle motor control operations.
+ *
+ * This task is used for handling motor control operations from
+ * a Xbox 360 controller (based on UART messages coming from the
+ * Raspberry Pi).
+ *
+ * @param pvParameters Pointer to task parameters (not used).
+ */
+static void motor_task(void *pvParameters);
 
 /**
  * @brief Set the speed and direction for both motors.
@@ -328,6 +343,14 @@ esp_err_t motor_init(void)
         return err;
     }
 
+    /* #05 - Create the motor control task */
+    BaseType_t task_created = xTaskCreate(motor_task, "motor_task", MOTOR_TASK_STACK_SIZE, NULL, MOTOR_TASK_PRIORITY, NULL);
+    if (task_created != pdPASS) 
+    {
+        ESP_LOGE(TAG, "Failed to create motor control task");
+        return ESP_FAIL;
+    }
+
     ESP_LOGI(TAG, "Motor control initialized successfully");
     return ESP_OK;
 }
@@ -491,6 +514,19 @@ esp_err_t motor_turn_right(int pwm)
 /*                     STATIC FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
 
+static void motor_task(void *pvParameters) 
+{
+    /* This task will be used for xbox controller input handling in the future.
+     * For now, it just runs indefinitely with a delay. */
+    while (1) 
+    {
+        /* Read Xbox controller input from RPi via UART (TODO) */
+
+        /* Parse the input and control the motors accordingly (TODO) */
+        
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
 
 static esp_err_t motor_set_speed(int left_motors_pwm, int right_motors_pwm) 
 {
