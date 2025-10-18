@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 /* ESP-IDF Includes */
 #include "sdkconfig.h"
@@ -28,6 +29,8 @@
 /* Project Includes */
 #include "motor_control.h"
 #include "web_server.h"
+#include "Common.h"
+#include "comms_uart.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -518,12 +521,20 @@ static void motor_task(void *pvParameters)
 {
     /* This task will be used for xbox controller input handling in the future.
      * For now, it just runs indefinitely with a delay. */
-    while (1) 
+    while (1)
     {
         /* Read Xbox controller input from RPi via UART (TODO) */
+        char formatted_msg[1024 + 50];
+        int rx_len = comms_uart_receive((uint8_t*)&formatted_msg[10], 1024, 1000);
+        if (rx_len > 0)
+        {
+            memcpy(formatted_msg, "Received: ", 10);
+            formatted_msg[10 + rx_len] = '\0';
+            web_server_print(formatted_msg);
+        }
 
         /* Parse the input and control the motors accordingly (TODO) */
-        
+
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }

@@ -33,7 +33,7 @@
 #define COMMS_UART_RX_PIN       (UART_PIN_NO_CHANGE) // Use default RX pin (GPIO3)
 #define COMMS_UART_RTS_PIN      (UART_PIN_NO_CHANGE) // No RTS
 #define COMMS_UART_CTS_PIN      (UART_PIN_NO_CHANGE) // No CTS
-#define COMMS_UART_BAUD_RATE    (115200)
+#define COMMS_UART_BAUD_RATE    (921600)
 #define COMMS_UART_BUF_SIZE     (1024)
 
 /*******************************************************************************/

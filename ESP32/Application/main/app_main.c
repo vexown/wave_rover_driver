@@ -21,6 +21,7 @@
 
 /* Project includes */
 #include "Common.h"
+#include "comms_uart.h"
 #include "motor_control.h"
 #include "oled_display.h"
 #include "web_server.h"
@@ -170,6 +171,18 @@ void app_main(void)
 
 static void init_components(void)
 {
+    /******************************* UART Communication *******************************/
+    LOG_TO_RPI("Initializing UART Communication...");
+    esp_err_t uart_err = comms_uart_init();
+    if (uart_err != ESP_OK)
+    {
+        LOG_TO_RPI("UART initialization failed: %s", esp_err_to_name(uart_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
+    }
+    else
+    {
+        LOG_TO_RPI("UART Communication Initialized.");
+    }
+
     /******************************* Motor Control *******************************/
     LOG_TO_RPI("Initializing Motor Control...");
     esp_err_t motor_err = motor_init();
