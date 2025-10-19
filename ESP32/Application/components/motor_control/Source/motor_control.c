@@ -595,18 +595,6 @@ static void motor_task(void *pvParameters)
                     
                     /* Apply motor speeds */
                     motor_set_speed(left_motor_pwm, right_motor_pwm);
-                    
-                    /* Log for debugging via web interface (reduce frequency to avoid spam) */
-                    static uint32_t log_counter = 0;
-                    if (++log_counter % 50 == 0)  // Log every 50th update (~2.5 seconds at 20Hz)
-                    {
-                        char debug_buffer[128];
-                        snprintf(debug_buffer, sizeof(debug_buffer), 
-                                 "Xbox: LX=%d LY=%d FWD=%d TURN=%d L=%d R=%d", 
-                                 lx, ly, forward_pwm, turn_pwm,
-                                 left_motor_pwm, right_motor_pwm);
-                        web_server_print(debug_buffer);
-                    }
                 }
             }
             else
@@ -631,15 +619,6 @@ static void motor_task(void *pvParameters)
             if (no_data_counter > 50)
             {
                 motor_set_speed(0, 0);  // Stop motors
-                
-                /* Log timeout only once when it first occurs */
-                if (no_data_counter == 51)
-                {
-                    char debug_buffer[64];
-                    snprintf(debug_buffer, sizeof(debug_buffer), 
-                             "UART timeout - motors stopped for safety");
-                    web_server_print(debug_buffer);
-                }
                 
                 /* Cap the counter to prevent overflow */
                 if (no_data_counter > 1000)
