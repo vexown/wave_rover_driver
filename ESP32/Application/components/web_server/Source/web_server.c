@@ -64,7 +64,7 @@
 #define MOTOR_CONTROL_PWM 255 //TODO - make this configurable on the web page?
 
 /* Max length for the message to be displayed on the web page */
-#define WEBSERVER_PRINT_MAX_LEN 512 // in bytes
+#define WEBSERVER_PRINT_MAX_LEN 2048 // in bytes
 
 /* WebSocket macros */
 #define WS_MAX_CLIENTS 4
