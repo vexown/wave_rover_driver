@@ -115,6 +115,11 @@
 #define MOTOR_TASK_STACK_SIZE       (4096)
 #define MOTOR_TASK_PRIORITY         (tskIDLE_PRIORITY + 5)
 
+/* Xbox Controller Configuration */
+#define XBOX_DEADZONE               (5000)      // Deadzone for joystick (out of ±32767)
+#define XBOX_MAX_AXIS_VALUE         (32767)     // Maximum axis value from Xbox controller
+#define UART_RX_TIMEOUT_MS          (100)       // Timeout for UART receive
+
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
@@ -151,6 +156,26 @@
  * @param pvParameters Pointer to task parameters (not used).
  */
 static void motor_task(void *pvParameters);
+
+/**
+ * @brief Map Xbox axis value to PWM duty cycle with deadzone.
+ *
+ * @param axis_value Raw axis value from Xbox controller (-32767 to 32767).
+ * @return int PWM duty cycle (-255 to 255).
+ */
+static int map_axis_to_pwm(int axis_value);
+
+/**
+ * @brief Parse Xbox controller data from UART message.
+ *
+ * Expected format: S|LX:value|LY:value|...|E\n
+ *
+ * @param data The received UART data string.
+ * @param lx Pointer to store left joystick X axis value.
+ * @param ly Pointer to store left joystick Y axis value.
+ * @return esp_err_t ESP_OK on success, ESP_FAIL on parse error.
+ */
+static esp_err_t parse_xbox_data(const char* data, int* lx, int* ly);
 
 /**
  * @brief Set the speed and direction for both motors.
@@ -519,23 +544,113 @@ esp_err_t motor_turn_right(int pwm)
 
 static void motor_task(void *pvParameters) 
 {
-    /* This task will be used for xbox controller input handling in the future.
-     * For now, it just runs indefinitely with a delay. */
+    char rx_buffer[512];  // Buffer for UART data
+    int lx = 0, ly = 0;   // Left joystick axes
+    uint32_t no_data_counter = 0;  // Counter for UART timeout detection
+    
+    ESP_LOGI(TAG, "Motor control task started - waiting for Xbox controller input");
+    
     while (1)
     {
-        /* Read Xbox controller input from RPi via UART (TODO) */
-        char formatted_msg[1024 + 50];
-        int rx_len = comms_uart_receive((uint8_t*)&formatted_msg[10], 1024, 1000);
+        /* Read Xbox controller data from RPi via UART */
+        int rx_len = comms_uart_receive((uint8_t*)rx_buffer, sizeof(rx_buffer) - 1, UART_RX_TIMEOUT_MS);
+        
         if (rx_len > 0)
         {
-            memcpy(formatted_msg, "Received: ", 10);
-            formatted_msg[10 + rx_len] = '\0';
-            web_server_print(formatted_msg);
+            /* Reset timeout counter when data is received */
+            no_data_counter = 0;
+            
+            /* Null-terminate the received data */
+            rx_buffer[rx_len] = '\0';
+            
+            /* Parse the Xbox controller data */
+            if (parse_xbox_data(rx_buffer, &lx, &ly) == ESP_OK)
+            {
+                /* LY controls forward/backward (inverted: negative = forward)
+                 * LX controls left/right turning (inverted: negative = right) */
+                
+                /* Map joystick values to PWM */
+                int forward_pwm = map_axis_to_pwm(-ly);  // Invert Y axis
+                int turn_pwm = map_axis_to_pwm(-lx);     // Invert X axis
+                
+                /* Check if joystick is centered (both axes in deadzone) */
+                if (forward_pwm == 0 && turn_pwm == 0)
+                {
+                    /* Stop motors immediately when joystick is released */
+                    motor_set_speed(0, 0);
+                }
+                else
+                {
+                    /* Calculate differential drive (tank drive mixing)
+                     * Left motor = forward - turn
+                     * Right motor = forward + turn */
+                    int left_motor_pwm = forward_pwm - turn_pwm;
+                    int right_motor_pwm = forward_pwm + turn_pwm;
+                    
+                    /* Clamp final values */
+                    if (left_motor_pwm > LEDC_DUTY_MAX) left_motor_pwm = LEDC_DUTY_MAX;
+                    if (left_motor_pwm < -LEDC_DUTY_MAX) left_motor_pwm = -LEDC_DUTY_MAX;
+                    if (right_motor_pwm > LEDC_DUTY_MAX) right_motor_pwm = LEDC_DUTY_MAX;
+                    if (right_motor_pwm < -LEDC_DUTY_MAX) right_motor_pwm = -LEDC_DUTY_MAX;
+                    
+                    /* Apply motor speeds */
+                    motor_set_speed(left_motor_pwm, right_motor_pwm);
+                    
+                    /* Log for debugging via web interface (reduce frequency to avoid spam) */
+                    static uint32_t log_counter = 0;
+                    if (++log_counter % 50 == 0)  // Log every 50th update (~2.5 seconds at 20Hz)
+                    {
+                        char debug_buffer[128];
+                        snprintf(debug_buffer, sizeof(debug_buffer), 
+                                 "Xbox: LX=%d LY=%d FWD=%d TURN=%d L=%d R=%d", 
+                                 lx, ly, forward_pwm, turn_pwm,
+                                 left_motor_pwm, right_motor_pwm);
+                        web_server_print(debug_buffer);
+                    }
+                }
+            }
+            else
+            {
+                /* Only log parse failures occasionally to avoid spam */
+                static uint32_t parse_fail_counter = 0;
+                if (++parse_fail_counter % 100 == 0)
+                {
+                    char debug_buffer[64];
+                    snprintf(debug_buffer, sizeof(debug_buffer), 
+                             "Failed to parse Xbox data (100 failures)");
+                    web_server_print(debug_buffer);
+                }
+            }
         }
-
-        /* Parse the input and control the motors accordingly (TODO) */
-
-        vTaskDelay(pdMS_TO_TICKS(100));
+        else
+        {
+            /* No data received - increment timeout counter */
+            no_data_counter++;
+            
+            /* Safety: Stop motors if no UART data for 500ms (50 * 10ms) */
+            if (no_data_counter > 50)
+            {
+                motor_set_speed(0, 0);  // Stop motors
+                
+                /* Log timeout only once when it first occurs */
+                if (no_data_counter == 51)
+                {
+                    char debug_buffer[64];
+                    snprintf(debug_buffer, sizeof(debug_buffer), 
+                             "UART timeout - motors stopped for safety");
+                    web_server_print(debug_buffer);
+                }
+                
+                /* Cap the counter to prevent overflow */
+                if (no_data_counter > 1000)
+                {
+                    no_data_counter = 51;  // Keep it above threshold
+                }
+            }
+        }
+        
+        /* Small delay to prevent task hogging CPU */
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -764,5 +879,64 @@ static esp_err_t all_motors_set_brake(void)
     err = gpio_set_level(RIGHT_MOTOR_B_BIN2_PIN, 1);
     if (err != ESP_OK) { ESP_LOGE(TAG, "Brake: Failed BIN2 high: %s", esp_err_to_name(err)); return err; }
 
+    return ESP_OK;
+}
+
+static int map_axis_to_pwm(int axis_value)
+{
+    /* Apply deadzone */
+    if (abs(axis_value) < XBOX_DEADZONE)
+    {
+        return 0;
+    }
+    
+    /* Map from ±32767 to ±LEDC_DUTY_MAX (±255)
+     * Note: We use float for precision during calculation */
+    float normalized = (float)axis_value / (float)XBOX_MAX_AXIS_VALUE;
+    int pwm = (int)(normalized * LEDC_DUTY_MAX);
+    
+    /* Clamp to valid range */
+    if (pwm > LEDC_DUTY_MAX) pwm = LEDC_DUTY_MAX;
+    if (pwm < -LEDC_DUTY_MAX) pwm = -LEDC_DUTY_MAX;
+    
+    return pwm;
+}
+
+static esp_err_t parse_xbox_data(const char* data, int* lx, int* ly)
+{
+    /* Expected format: S|LX:value|LY:value|...|E\n */
+    
+    /* Find the start marker */
+    const char* start = strstr(data, "S|");
+    if (!start)
+    {
+        ESP_LOGW(TAG, "No start marker found in Xbox data");
+        return ESP_FAIL;
+    }
+    
+    /* Find LX value */
+    const char* lx_pos = strstr(start, "LX:");
+    if (lx_pos)
+    {
+        *lx = atoi(lx_pos + 3);  // Skip "LX:"
+    }
+    else
+    {
+        ESP_LOGW(TAG, "LX not found in Xbox data");
+        return ESP_FAIL;
+    }
+    
+    /* Find LY value */
+    const char* ly_pos = strstr(start, "LY:");
+    if (ly_pos)
+    {
+        *ly = atoi(ly_pos + 3);  // Skip "LY:"
+    }
+    else
+    {
+        ESP_LOGW(TAG, "LY not found in Xbox data");
+        return ESP_FAIL;
+    }
+    
     return ESP_OK;
 }
