@@ -30,6 +30,7 @@ idf_component_register(SRCS "app_main.c"
                                 NaviLogging
                                 i2c_manager
                                 IMU
+                                esp_now_comm
                       )
 
 

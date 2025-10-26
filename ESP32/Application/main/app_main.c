@@ -28,6 +28,8 @@
 #include "NaviLogging.h"
 #include "i2c_manager.h"
 #include "IMU.h"
+#include "esp_now_comm.h"
+#include "esp_now_comm_callbacks.h"
 
 /*******************************************************************************/
 /*                                 MACROS                                      */
@@ -230,6 +232,29 @@ static void init_components(void)
     else
     {
         LOG_TO_RPI("Web Server Initialized.");
+    }
+
+    /******************************* ESP-NOW Initialization *******************************/
+    LOG_TO_RPI("Initializing ESP-NOW Communication...");
+    /* Create configuration structure with callback function pointers
+     * These callbacks will be invoked by the ESP-NOW component when
+     * data is received or transmission completes
+     */
+    esp_now_comm_config_t config = 
+    {
+        .on_recv = on_data_recv_callback,    /* Called when data is received */
+        .on_send = on_data_send_callback,    /* Called after send attempt completes */
+        .mac_addr = {0}                      /* We don't know the MAC address yet (WiFi not initialized) */
+    };
+
+    esp_err_t esp_now_err = esp_now_comm_init(&config);
+    if (esp_now_err != ESP_OK)
+    {
+        LOG_TO_RPI("ESP-NOW initialization failed: %s", esp_err_to_name(esp_now_err)); // Log the error but continue execution
+    }
+    else
+    {
+        LOG_TO_RPI("ESP-NOW Communication Initialized.");
     }
 
     /******************************* NaviLogging *******************************/

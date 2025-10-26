@@ -1,5 +1,7 @@
 #include "esp_now_comm_callbacks.h"
 #include "esp_log.h"
+#include "string.h"
+#include "NaviLogging.h"
 
 #define TAG "ESP_NOW_COMM_CALLBACK"
 
@@ -18,12 +20,22 @@ void on_data_send_callback(const uint8_t *mac_addr, esp_now_send_status_t status
 
 void on_data_recv_callback(const uint8_t *mac_addr, const uint8_t *data, int len)
 {
-    /* Log the reception event with peer MAC address and data length */
-    ESP_LOGI(TAG, "Received %d bytes from %02x:%02x:%02x:%02x:%02x:%02x", 
-             len, mac_addr[0], mac_addr[1], mac_addr[2], 
-             mac_addr[3], mac_addr[4], mac_addr[5]);
+    ESP_LOGI(TAG, "Received data from %02x:%02x:%02x:%02x:%02x:%02x, length: %d bytes", 
+             mac_addr[0], mac_addr[1], mac_addr[2], 
+             mac_addr[3], mac_addr[4], mac_addr[5], len);
     
-    /* Here you could parse the received data and take action
-     * For example: deserialize protocol messages, update device state, etc.
-     */
+    /* Route the received data to the appropriate handler based on sender MAC address */
+    if (memcmp(mac_addr, navi_esp32_mac, 6) == 0)
+    {
+        /* Data from NaviLogging sender - pass to NaviLogging handler */
+        ESP_LOGI(TAG, "Data from NaviLogging sender, routing to NaviLogging_handle_received_coords");
+        NaviLogging_handle_received_coords(mac_addr, data, len);
+    }
+    else
+    {
+        /* Data from unknown or unregistered sender */
+        ESP_LOGW(TAG, "Received data from unregistered sender: %02x:%02x:%02x:%02x:%02x:%02x", 
+                 mac_addr[0], mac_addr[1], mac_addr[2], 
+                 mac_addr[3], mac_addr[4], mac_addr[5]);
+    }
 }

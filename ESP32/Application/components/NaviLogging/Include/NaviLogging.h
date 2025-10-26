@@ -22,6 +22,7 @@
 
 /* ESP-IDF Libraries */
 #include "esp_err.h"
+#include "esp_now.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -50,6 +51,7 @@ typedef struct
 /*   for variables defined in the corresponding .c file, for use in other .c   */
 /*      files just by including this header file. Use extern for these.        */
 /*******************************************************************************/
+extern uint8_t navi_esp32_mac[ESP_NOW_ETH_ALEN];
 
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DECLARATIONS                            */
@@ -62,14 +64,15 @@ typedef struct
 /**
  * @brief Initialize the NaviLogging component.
  *
- * @details This function initializes ESP-NOW and sets up a receive callback
- *          to handle incoming navigation data.
+ * @details Initializes ESP-NOW communication via esp_now_comm, registers the
+ *          receive callback, adds the sender as a peer, and starts the
+ *          coordinates processing task.
  *
  * @return
  *      - ESP_OK on success
  *      - ESP_FAIL if initialization fails
- * 
- * @note Make sure this is called after Wi-Fi is initialized
+ *
+ * @note Must be called after Wi-Fi is initialized
  */
 esp_err_t NaviLogging_init(void);
 
@@ -101,5 +104,16 @@ esp_err_t NaviLogging_get_last_coordinates(navi_coordinates_type *coordinates);
  *      - false if no new data since last check
  */
 bool NaviLogging_is_new_data_available(void);
+
+/**
+ * @brief ESP-NOW data receive callback for NaviLogging.
+ * 
+ * @param[in] mac_addr MAC address of the sender device
+ * @param[in] data Pointer to received data buffer
+ * @param[in] len Length of received data in bytes
+ *
+ * @return None
+ */
+void NaviLogging_handle_received_coords(const uint8_t *mac_addr, const uint8_t *data, int len);
 
 #endif /* NAVILOGGING_H */
