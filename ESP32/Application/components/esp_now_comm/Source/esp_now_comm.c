@@ -11,6 +11,7 @@
 #include "esp_wifi.h"
 #include "esp_now.h"
 #include "esp_log.h"
+#include "nvs_flash.h"
 #include "string.h"
 
 /*******************************************************************************/
@@ -85,8 +86,35 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
     /* #01 - Copy user configuration to global config */
     memcpy(&g_config, config, sizeof(esp_now_comm_config_t));
 
-    /* #02 - Initialize WiFi network interface (which ESP-NOW is built upon) */
-    esp_err_t ret = esp_netif_init();
+    /* #02 - Initialize NVS (required by WiFi for storing calibration data and configuration)
+     * NVS may already be initialized by other components
+     */
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) 
+    {
+        /* NVS partition was truncated/corrupted - erase it and reinitialize */
+        ESP_LOGW(TAG, "NVS partition corrupted/out of date, erasing...");
+        ret = nvs_flash_erase();
+        if (ret != ESP_OK) 
+        {
+            ESP_LOGE(TAG, "nvs_flash_erase failed: %s", esp_err_to_name(ret));
+            return ret;
+        }
+        
+        /* Try initializing NVS again after erase */
+        ret = nvs_flash_init();
+    }
+    
+    if (ret != ESP_OK) 
+    {
+        ESP_LOGE(TAG, "nvs_flash_init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    /* #03 - Initialize WiFi network interface (which ESP-NOW is built upon)
+     * This may already be initialized by other components
+     */
+    ret = esp_netif_init();
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) 
     {
         ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(ret));
@@ -101,7 +129,7 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
         ESP_LOGD(TAG, "Netif already initialized");
     }
 
-    /* #03 - Create default event loop for WiFi events */
+    /* #04 - Create default event loop for WiFi events */
     ret = esp_event_loop_create_default();
     if (ret != ESP_OK && ret != ESP_ERR_NO_MEM) // ESP_ERR_NO_MEM means already created
     {
@@ -109,7 +137,7 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
         return ret;
     }
 
-    /* #04 - Initialize WiFi with default configuration */
+    /* #05 - Initialize WiFi with default configuration */
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK) 
@@ -126,7 +154,7 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
         }
     }
 
-    /* #05 - Set WiFi mode to Station (STA) for ESP-NOW */
+    /* #06 - Set WiFi mode to Station (STA) for ESP-NOW */
     ret = esp_wifi_set_mode(WIFI_MODE_STA);
     if (ret != ESP_OK) 
     {
@@ -134,7 +162,7 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
         return ret;
     }
 
-    /* #06 - Start WiFi. In WIFI_MODE_STA mode, it creates station control block and starts station */
+    /* #07 - Start WiFi. In WIFI_MODE_STA mode, it creates station control block and starts station */
     ret = esp_wifi_start();
     if (ret != ESP_OK) 
     {
@@ -149,7 +177,7 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
         }
     }
 
-    /* #07 - Retrieve MAC address and store in config for later use */
+    /* #08 - Retrieve MAC address and store in config for later use */
     ret = esp_wifi_get_mac(WIFI_IF_STA, g_config.mac_addr);
     if (ret != ESP_OK) 
     {
@@ -157,7 +185,7 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
         return ret;
     }
 
-    /* #08 - Now, with WiFi stuff all ready, initialize ESP-NOW protocol upon it */
+    /* #09 - Now, with WiFi stuff all ready, initialize ESP-NOW protocol upon it */
     ret = esp_now_init();
     if (ret != ESP_OK) 
     {
