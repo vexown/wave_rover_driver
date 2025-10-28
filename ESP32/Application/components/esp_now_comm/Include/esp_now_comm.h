@@ -80,11 +80,32 @@ typedef struct
 /**
  * @brief Initialize ESP-NOW communication subsystem
  *
- * @details This function initializes WiFi in STA mode and sets up the ESP-NOW
- *          protocol stack. It must be called before any other ESP-NOW
- *          communication functions. The configuration structure provides
- *          callback functions for handling received data and send completions.
- *          The device's MAC address is stored in config->mac_addr during initialization.
+ * @details This function initializes the ESP-NOW protocol stack for wireless
+ *          peer-to-peer communication. IMPORTANT: Both NVS and WiFi MUST already
+ *          be initialized before calling this function.
+ *
+ *          NVS INITIALIZATION REQUIREMENT:
+ *          Before calling esp_now_comm_init(), the caller must initialize NVS:
+ *          1. nvs_flash_init() - Initialize NVS Flash
+ *          (Handle ESP_ERR_NVS_NO_FREE_PAGES or ESP_ERR_NVS_NEW_VERSION_FOUND
+ *           by calling nvs_flash_erase() and reinitializing)
+ *
+ *          WIFI INITIALIZATION REQUIREMENT:
+ *          Before calling esp_now_comm_init(), the caller must ensure WiFi is
+ *          initialized by calling (in order):
+ *          1. esp_netif_init() - Initialize network interface layer
+ *          2. esp_event_loop_create_default() - Create default event loop
+ *          3. esp_wifi_init(&cfg) - Initialize WiFi with default configuration
+ *          4. esp_wifi_set_mode(WIFI_MODE_STA) - Set WiFi to Station mode
+ *          5. esp_wifi_start() - Start WiFi operations
+ *          
+ *          Failure to pre-initialize NVS or WiFi will cause esp_now_comm_init()
+ *          to fail with ESP_ERR_INVALID_STATE or similar errors.
+ *
+ *          The configuration structure provides callback functions for handling
+ *          received data and send completions. The device's MAC address is
+ *          retrieved from the already-initialized WiFi and stored in
+ *          config->mac_addr during initialization.
  *
  * @param[in,out] config Pointer to configuration structure with callbacks.
  *                        On return, mac_addr field will be populated with device MAC.
@@ -92,6 +113,7 @@ typedef struct
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_ARG if config is NULL
+ *      - ESP_ERR_INVALID_STATE if NVS or WiFi is not initialized
  *      - Other esp_err_t codes if initialization fails
  */
 esp_err_t esp_now_comm_init(esp_now_comm_config_t *config);

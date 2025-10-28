@@ -11,7 +11,6 @@
 #include "esp_wifi.h"
 #include "esp_now.h"
 #include "esp_log.h"
-#include "nvs_flash.h"
 #include "string.h"
 
 /*******************************************************************************/
@@ -83,109 +82,38 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
         return ESP_ERR_INVALID_ARG;
     }
 
+    esp_err_t ret;
+
     /* #01 - Copy user configuration to global config */
     memcpy(&g_config, config, sizeof(esp_now_comm_config_t));
 
-    /* #02 - Initialize NVS (required by WiFi for storing calibration data and configuration)
-     * NVS may already be initialized by other components
+    /* #02 - IMPORTANT: WiFi MUST already be initialized by calling code (e.g., web_server_init)
+     * This component assumes:
+     *   - esp_netif_init() has been called
+     *   - esp_event_loop_create_default() has been called
+     *   - esp_wifi_init() has been called
+     *   - WiFi mode has been set to WIFI_MODE_STA
+     *   - esp_wifi_start() has been called
+     * 
+     * If we initialize WiFi here, it will conflict with web_server component which also
+     * initializes WiFi, causing ESP_ERR_INVALID_STATE errors.
+     * 
+     * Responsibility: Caller must initialize WiFi before calling esp_now_comm_init()
      */
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) 
-    {
-        /* NVS partition was truncated/corrupted - erase it and reinitialize */
-        ESP_LOGW(TAG, "NVS partition corrupted/out of date, erasing...");
-        ret = nvs_flash_erase();
-        if (ret != ESP_OK) 
-        {
-            ESP_LOGE(TAG, "nvs_flash_erase failed: %s", esp_err_to_name(ret));
-            return ret;
-        }
-        
-        /* Try initializing NVS again after erase */
-        ret = nvs_flash_init();
-    }
     
-    if (ret != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "nvs_flash_init failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    /* #03 - Initialize WiFi network interface (which ESP-NOW is built upon)
-     * This may already be initialized by other components
-     */
-    ret = esp_netif_init();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) 
-    {
-        ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-    if (ret == ESP_OK) 
-    {
-        ESP_LOGD(TAG, "Created new netif");
-    }
-    else 
-    {
-        ESP_LOGD(TAG, "Netif already initialized");
-    }
-
-    /* #04 - Create default event loop for WiFi events */
-    ret = esp_event_loop_create_default();
-    if (ret != ESP_OK && ret != ESP_ERR_NO_MEM) // ESP_ERR_NO_MEM means already created
-    {
-        ESP_LOGE(TAG, "esp_event_loop_create_default failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    /* #05 - Initialize WiFi with default configuration */
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ret = esp_wifi_init(&cfg);
-    if (ret != ESP_OK) 
-    {
-        /* WiFi may already be initialized - check if we can proceed */
-        if (ret == ESP_ERR_INVALID_STATE) 
-        {
-            ESP_LOGD(TAG, "WiFi already initialized, continuing...");
-        }
-        else 
-        {
-            ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));
-            return ret;
-        }
-    }
-
-    /* #06 - Set WiFi mode to Station (STA) for ESP-NOW */
-    ret = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (ret != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    /* #07 - Start WiFi. In WIFI_MODE_STA mode, it creates station control block and starts station */
-    ret = esp_wifi_start();
-    if (ret != ESP_OK) 
-    {
-        if (ret == ESP_ERR_INVALID_STATE) 
-        {
-            ESP_LOGD(TAG, "WiFi already started");
-        }
-        else 
-        {
-            ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(ret));
-            return ret;
-        }
-    }
-
-    /* #08 - Retrieve MAC address and store in config for later use */
+    /* #04 - Retrieve MAC address from already-initialized WiFi */
     ret = esp_wifi_get_mac(WIFI_IF_STA, g_config.mac_addr);
     if (ret != ESP_OK) 
     {
-        ESP_LOGE(TAG, "Failed to get MAC address: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to get MAC address: %s (WiFi must be initialized first)", esp_err_to_name(ret));
         return ret;
     }
 
-    /* #09 - Now, with WiFi stuff all ready, initialize ESP-NOW protocol upon it */
+    ESP_LOGI(TAG, "Retrieved MAC address from WiFi: %02x:%02x:%02x:%02x:%02x:%02x",
+             g_config.mac_addr[0], g_config.mac_addr[1], g_config.mac_addr[2],
+             g_config.mac_addr[3], g_config.mac_addr[4], g_config.mac_addr[5]);
+
+    /* #05 - Initialize ESP-NOW protocol (WiFi must be running first) */
     ret = esp_now_init();
     if (ret != ESP_OK) 
     {
@@ -193,7 +121,7 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
         return ret;
     }
 
-    /* #09 - Register send completion and receive data callbacks
+    /* #06 - Register send completion and receive data callbacks
      * 
      * These callbacks forward ESP-NOW events to user-defined handlers (if provided).
      * The callbacks are bridge functions between the ESP-NOW stack and application logic.
