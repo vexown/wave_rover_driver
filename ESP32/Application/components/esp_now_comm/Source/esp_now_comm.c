@@ -12,6 +12,7 @@
 #include "esp_now.h"
 #include "esp_log.h"
 #include "string.h"
+#include "Common.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -105,11 +106,11 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
     ret = esp_wifi_get_mac(WIFI_IF_STA, g_config.mac_addr);
     if (ret != ESP_OK) 
     {
-        ESP_LOGE(TAG, "Failed to get MAC address: %s (WiFi must be initialized first)", esp_err_to_name(ret));
+        LOG_TO_RPI("Failed to get MAC address: %s (WiFi must be initialized first)", esp_err_to_name(ret));
         return ret;
     }
 
-    ESP_LOGI(TAG, "Retrieved MAC address from WiFi: %02x:%02x:%02x:%02x:%02x:%02x",
+    LOG_TO_RPI("Retrieved MAC address from WiFi: %02x:%02x:%02x:%02x:%02x:%02x",
              g_config.mac_addr[0], g_config.mac_addr[1], g_config.mac_addr[2],
              g_config.mac_addr[3], g_config.mac_addr[4], g_config.mac_addr[5]);
 
@@ -117,7 +118,7 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
     ret = esp_now_init();
     if (ret != ESP_OK) 
     {
-        ESP_LOGE(TAG, "esp_now_init failed: %s", esp_err_to_name(ret));
+        LOG_TO_RPI("esp_now_init failed: %s", esp_err_to_name(ret));
         return ret;
     }
 
@@ -142,18 +143,18 @@ esp_err_t esp_now_comm_init(esp_now_comm_config_t *config)
     ret = esp_now_register_send_cb(esp_now_send_cb);
     if (ret != ESP_OK) 
     {
-        ESP_LOGE(TAG, "esp_now_register_send_cb failed: %s", esp_err_to_name(ret));
+        LOG_TO_RPI("esp_now_register_send_cb failed: %s", esp_err_to_name(ret));
         return ret;
     }
     ret = esp_now_register_recv_cb(esp_now_recv_cb);
     if (ret != ESP_OK) 
     {
-        ESP_LOGE(TAG, "esp_now_register_recv_cb failed: %s", esp_err_to_name(ret));
+        LOG_TO_RPI("esp_now_register_recv_cb failed: %s", esp_err_to_name(ret));
         return ret;
     }
 
-    ESP_LOGI(TAG, "ESP-NOW communication initialized successfully");
-    ESP_LOGI(TAG, "Device MAC: %02x:%02x:%02x:%02x:%02x:%02x",
+    LOG_TO_RPI("ESP-NOW communication initialized successfully");
+    LOG_TO_RPI("Device MAC: %02x:%02x:%02x:%02x:%02x:%02x",
              g_config.mac_addr[0], g_config.mac_addr[1], g_config.mac_addr[2],
              g_config.mac_addr[3], g_config.mac_addr[4], g_config.mac_addr[5]);
 
@@ -185,13 +186,13 @@ esp_err_t esp_now_comm_add_peer(const uint8_t *mac_addr)
     esp_err_t ret = esp_now_add_peer(&peer);
     if (ret != ESP_OK) 
     {
-        ESP_LOGE(TAG, "esp_now_add_peer failed: %s", esp_err_to_name(ret));
+        LOG_TO_RPI("esp_now_add_peer failed: %s", esp_err_to_name(ret));
         return ret;
     }
 
     /* #03 - Increment peer count and log the MAC address of the added peer */
     g_peer_count++;
-    ESP_LOGI(TAG, "Peer added: %02x:%02x:%02x:%02x:%02x:%02x", 
+    LOG_TO_RPI("Peer added: %02x:%02x:%02x:%02x:%02x:%02x", 
              mac_addr[0], mac_addr[1], mac_addr[2], 
              mac_addr[3], mac_addr[4], mac_addr[5]);
 
@@ -209,7 +210,7 @@ esp_err_t esp_now_comm_remove_peer(const uint8_t *mac_addr)
     esp_err_t ret = esp_now_del_peer(mac_addr);
     if (ret != ESP_OK) 
     {
-        ESP_LOGE(TAG, "esp_now_del_peer failed: %s", esp_err_to_name(ret));
+        LOG_TO_RPI("esp_now_del_peer failed: %s", esp_err_to_name(ret));
         return ret;
     }
 
@@ -218,7 +219,7 @@ esp_err_t esp_now_comm_remove_peer(const uint8_t *mac_addr)
     {
         g_peer_count--;
     }
-    ESP_LOGI(TAG, "Peer removed: %02x:%02x:%02x:%02x:%02x:%02x", 
+    LOG_TO_RPI("Peer removed: %02x:%02x:%02x:%02x:%02x:%02x", 
              mac_addr[0], mac_addr[1], mac_addr[2], 
              mac_addr[3], mac_addr[4], mac_addr[5]);
     
@@ -258,7 +259,7 @@ esp_err_t esp_now_comm_deinit(void)
      * This powers down the WiFi radio */
     esp_wifi_stop();
     
-    ESP_LOGI(TAG, "ESP-NOW communication deinitialized");
+    LOG_TO_RPI("ESP-NOW communication deinitialized");
     return ESP_OK;
 }
 
