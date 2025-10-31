@@ -30,11 +30,12 @@
 #include "IMU.h"
 #include "esp_now_comm.h"
 #include "esp_now_comm_callbacks.h"
+#include "wifi_manager.h"
 
 /*******************************************************************************/
 /*                                 MACROS                                      */
 /*******************************************************************************/
-#define FW_VERSION "01.15" // Firmware version (MAJOR.MINOR)
+#define FW_VERSION "01.16" // Firmware version (MAJOR.MINOR)
 
 #define TASK_APP_MAIN_PERIOD_TICKS pdMS_TO_TICKS(2000)
 
@@ -54,6 +55,21 @@ esp_err_t oled_err = ESP_FAIL;
 /*******************************************************************************/
 /*                        STATIC FUNCTION DECLARATIONS                         */
 /*******************************************************************************/
+
+/**
+ * @brief Callback for WiFi disconnection - stops motors for safety
+ * 
+ * @return ESP_OK if motors stopped successfully, ESP_FAIL otherwise
+ */
+static esp_err_t on_wifi_disconnect(void);
+
+/**
+ * @brief Callback for WiFi status display updates - updates OLED
+ * 
+ * @param status_line Status message to display
+ * @param detail_line Detail message to display (e.g., IP address)
+ */
+static void on_wifi_status_update(const char *status_line, const char *detail_line);
 
 /**
  * @brief Prints system information to various outputs.
@@ -173,6 +189,38 @@ void app_main(void)
 
 static void init_components(void)
 {
+    /******************************* NVS Flash *******************************/
+    LOG_TO_RPI("Initializing NVS Flash...");
+    /* NVS (Non-Volatile Storage) is a partition in the ESP32's flash memory
+     * used to store key-value pairs persistently across reboots. It's commonly
+     * used for storing configuration data, calibration values, or WiFi credentials.
+     * The ESP-IDF WiFi library uses it here, potentially to store station credentials,
+     * allowing the device to reconnect automatically after a restart.
+     * This is apparently required by Wi-Fi stack for storing credentials and PHY calibration data. */
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) 
+    {
+        /* NVS partition was truncated/corrupted - erase it and reinitialize */
+        LOG_TO_RPI("NVS partition corrupted/out of date, erasing...");
+        nvs_err = nvs_flash_erase();
+        if (nvs_err != ESP_OK) 
+        {
+            LOG_TO_RPI("NVS erase failed: %s", esp_err_to_name(nvs_err));
+        }
+        else
+        {
+            nvs_err = nvs_flash_init();
+        }
+    }
+    if (nvs_err != ESP_OK)
+    {
+        LOG_TO_RPI("NVS initialization failed: %s", esp_err_to_name(nvs_err));
+    }
+    else
+    {
+        LOG_TO_RPI("NVS Flash Initialized.");
+    }
+
     /******************************* UART Communication *******************************/
     LOG_TO_RPI("Initializing UART Communication...");
     esp_err_t uart_err = comms_uart_init();
@@ -183,18 +231,6 @@ static void init_components(void)
     else
     {
         LOG_TO_RPI("UART Communication Initialized.");
-    }
-
-    /******************************* Motor Control *******************************/
-    LOG_TO_RPI("Initializing Motor Control...");
-    esp_err_t motor_err = motor_init();
-    if (motor_err != ESP_OK)
-    {
-        LOG_TO_RPI("Motor initialization failed: %s", esp_err_to_name(motor_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
-    }
-    else
-    {
-        LOG_TO_RPI("Motor Control Initialized.");
     }
 
     /******************************* I2C Manager *******************************/
@@ -222,6 +258,103 @@ static void init_components(void)
         LOG_TO_RPI("OLED Display Initialized.");
     }
 
+    /******************************* TCP/IP & Event Loop *******************************/
+    LOG_TO_RPI("Initializing network stack...");
+    /* Initialize the TCP/IP stack (ESP-IDF uses lwIP for this) */
+    /* ESP-NETIF (Network Interface) library provides an abstraction layer for the application on top of the TCP/IP stack. 
+     * ESP-IDF currently implements ESP-NETIF for the lwIP TCP/IP stack only.
+     * See documentation for details: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/network/esp_netif.html 
+     **/
+    esp_err_t netif_err = esp_netif_init();
+    if (netif_err != ESP_OK)
+    {
+        LOG_TO_RPI("Network interface initialization failed: %s", esp_err_to_name(netif_err));
+    }
+    
+    /* Initialize and start the default system event loop. */
+    /* This loop is used by various ESP-IDF components (e.g., WiFi, TCP/IP)
+     * to post events and allows application code to register handlers
+     * that react to these events asynchronously. It facilitates communication
+     * between different parts of the system.
+     **/
+    esp_err_t event_loop_err = esp_event_loop_create_default();
+    if (event_loop_err != ESP_OK && event_loop_err != ESP_ERR_NO_MEM)
+    {
+        LOG_TO_RPI("Event loop creation failed: %s", esp_err_to_name(event_loop_err));
+    }
+    /* Create a default WiFi station interface */
+    /* The API creates esp_netif object with default WiFi station config,
+     * attaches the netif to wifi and registers wifi handlers to the default event loop.
+     * The return value is a pointer to the created esp_netif instance (not used here).
+     * (default event loop needs to be created prior to calling this API)
+     **/
+    (void)esp_netif_create_default_wifi_sta(); 
+
+    LOG_TO_RPI("Network stack initialized.");
+
+    /******************************* WiFi Initialization *******************************/
+    LOG_TO_RPI("Initializing WiFi...");
+    wifi_manager_callbacks_t wifi_callbacks = {
+        .on_disconnect = on_wifi_disconnect,
+        .on_status_update = on_wifi_status_update
+    };
+    
+    esp_err_t wifi_err = wifi_manager_init(&wifi_callbacks);
+    if (wifi_err != ESP_OK)
+    {
+        LOG_TO_RPI("WiFi initialization failed: %s", esp_err_to_name(wifi_err)); // Log the error but continue execution
+    }
+    else
+    {
+        LOG_TO_RPI("WiFi Initialized.");
+    }
+
+    /******************************* ESP-NOW Initialization *******************************/
+    /* IMPORTANT: ESP-NOW initializes immediately after WiFi driver starts.
+     * ESP-NOW does NOT require WiFi to be connected to an AP.
+     * It only requires the WiFi radio to be initialized and running in STA mode.
+     * 
+     * This MUST be before web_server_init() because web_server_init() blocks waiting
+     * for WiFi AP connection, which should happen in parallel with ESP-NOW operation.
+     */
+    LOG_TO_RPI("Initializing ESP-NOW Communication...");
+    esp_now_comm_config_t config = 
+    {
+        .on_recv = on_data_recv_callback,    /* Called when data is received */
+        .on_send = on_data_send_callback,    /* Called after send attempt completes */
+        .mac_addr = {0}                      /* WiFi radio is initialized, MAC will be retrieved */
+    };
+
+    esp_err_t esp_now_err = esp_now_comm_init(&config);
+    if (esp_now_err != ESP_OK)
+    {
+        LOG_TO_RPI("ESP-NOW initialization failed: %s", esp_err_to_name(esp_now_err));
+        // Note: Don't call web_server_print here yet since web server isn't initialized
+    }
+    else
+    {
+        LOG_TO_RPI("ESP-NOW Communication Initialized.");
+        
+        /* Retrieve and log the WiFi channel that ESP-NOW will use */
+        uint8_t primary_channel = 0;
+        wifi_second_chan_t secondary_channel = WIFI_SECOND_CHAN_NONE;
+        esp_err_t channel_err = wifi_manager_get_channel(&primary_channel, &secondary_channel);
+        
+        if (channel_err == ESP_OK)
+        {
+            LOG_TO_RPI("ESP-NOW will use WiFi Channel: %d (use this channel on other devices)", primary_channel);
+            
+            if (secondary_channel != WIFI_SECOND_CHAN_NONE)
+            {
+                LOG_TO_RPI("Secondary Channel for HT40: %d", secondary_channel);
+            }
+        }
+        else
+        {
+            LOG_TO_RPI("Warning: Could not retrieve WiFi channel for ESP-NOW");
+        }
+    }
+
     /******************************* Web Server *******************************/
     LOG_TO_RPI("Initializing Web Server...");
     esp_err_t web_err = web_server_init();
@@ -234,27 +367,16 @@ static void init_components(void)
         LOG_TO_RPI("Web Server Initialized.");
     }
 
-    /******************************* ESP-NOW Initialization *******************************/
-    LOG_TO_RPI("Initializing ESP-NOW Communication...");
-    /* Create configuration structure with callback function pointers
-     * These callbacks will be invoked by the ESP-NOW component when
-     * data is received or transmission completes
-     */
-    esp_now_comm_config_t config = 
+    /******************************* Motor Control *******************************/
+    LOG_TO_RPI("Initializing Motor Control...");
+    esp_err_t motor_err = motor_init();
+    if (motor_err != ESP_OK)
     {
-        .on_recv = on_data_recv_callback,    /* Called when data is received */
-        .on_send = on_data_send_callback,    /* Called after send attempt completes */
-        .mac_addr = {0}                      /* We don't know the MAC address yet (WiFi not initialized) */
-    };
-
-    esp_err_t esp_now_err = esp_now_comm_init(&config);
-    if (esp_now_err != ESP_OK)
-    {
-        LOG_TO_RPI("ESP-NOW initialization failed: %s", esp_err_to_name(esp_now_err)); // Log the error but continue execution
+        LOG_TO_RPI("Motor initialization failed: %s", esp_err_to_name(motor_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
     }
     else
     {
-        LOG_TO_RPI("ESP-NOW Communication Initialized.");
+        LOG_TO_RPI("Motor Control Initialized.");
     }
 
     /******************************* NaviLogging *******************************/
@@ -323,7 +445,7 @@ static void print_system_info(void)
 
     uint8_t mac_addr[6];
     (void)esp_wifi_get_mac(ESP_IF_WIFI_STA, mac_addr); // Get the MAC address of the station interface (for ESP-NOW)
-    ESP_LOGI("MAC_INFO", "My MAC Address is: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+    LOG_TO_RPI("My MAC Address is: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
 
     if (oled_err == ESP_OK)
     {
@@ -389,3 +511,20 @@ static void print_system_info(void)
     web_server_print(info_buffer);
 }
 
+static esp_err_t on_wifi_disconnect(void)
+{
+    /* Immediately stop the motors on disconnection (to prevent leaving them running in a
+     * potentially uncontrolled state when the device is disconnected from WiFi) */
+    return motor_stop();
+}
+
+static void on_wifi_status_update(const char *status_line, const char *detail_line)
+{
+    /* Update OLED display with WiFi status if OLED is available */
+    if (oled_err == ESP_OK) 
+    {
+        oled_write_string(2, status_line);
+        oled_write_string(3, detail_line);
+        oled_refresh();
+    }
+}
