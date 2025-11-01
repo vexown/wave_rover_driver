@@ -30,6 +30,11 @@
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
+typedef enum
+{
+    DIRECT_MOTOR_CONTROL,
+    ESP_NOW_MOTOR_CONTROLLER
+} motor_control_mode_t;
 
 /*******************************************************************************/
 /*                     GLOBAL VARIABLES DECLARATIONS                           */
@@ -47,11 +52,14 @@
 /*******************************************************************************/
 
 /**
- * @brief Initialize motor control GPIOs and LEDC peripherals.
- *
+ * @brief Initialize motor control:
+ *      - Direct Motor Control: uses TB6612FNG motor driver and ESP32's GPIOs and LEDC peripherals.
+ *      - ESP-NOW Motor Controller: communicates with a dedicated motor controller ESP32 via ESP-NOW.
+ * 
+ * @param mode Motor control mode to initialize.
  * @return esp_err_t ESP_OK on success, or an error code on failure.
  */
-esp_err_t motor_init(void);
+esp_err_t motor_init(const motor_control_mode_t mode);
 
 /**
  * @brief Stop both motors immediately.

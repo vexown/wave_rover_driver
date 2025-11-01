@@ -31,6 +31,7 @@
 #include "web_server.h"
 #include "Common.h"
 #include "comms_uart.h"
+#include "esp_now_comm.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -145,6 +146,26 @@
 /*******************************************************************************/
 /*                     STATIC FUNCTION DECLARATIONS                            */
 /*******************************************************************************/
+
+/**
+ * @brief Initialize ESP-NOW for motor controller communication.
+ *
+ * This function sets up the ESP-NOW protocol to enable wireless communication
+ * with the motor controller.
+ *
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t esp_now_motor_controller_init(void);
+
+/**
+ * @brief Initialize direct motor control.
+ *
+ * This function sets up the necessary components for direct motor control,
+ * such as PWM timers and GPIO pins.
+ *
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t direct_motor_control_init(void);
 
 /**
  * @brief Task to handle motor control operations.
@@ -276,11 +297,15 @@ static esp_err_t all_motors_set_brake(void);
 /* Mutex for accessing any of the motor control functions. */
 static SemaphoreHandle_t motor_mutex = NULL;
 
+/* Motor controller ESP32 MAC address for testing communications */
+static uint8_t motor_controller_mac[6] = {0xB4, 0x3A, 0x45, 0x89, 0x61, 0x54};
+
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
-esp_err_t motor_init(void) 
+esp_err_t motor_init(const motor_control_mode_t mode) 
 {
+    esp_err_t err;
     ESP_LOGI(TAG, "Initializing motor control");
 
     motor_mutex = xSemaphoreCreateMutex();
@@ -290,89 +315,34 @@ esp_err_t motor_init(void)
         return ESP_FAIL;
     }
 
-    /* #01 - Define and apply the GPIO configuration for pins which are used for motor control, specifically
-     * the direction control pins (AIN1, AIN2 for left motors and BIN1, BIN2 for right motors) */
-    gpio_config_t dir_control_gpio_config = 
+    if(mode == DIRECT_MOTOR_CONTROL)
     {
-        .pin_bit_mask = (1ULL << LEFT_MOTOR_A_AIN1_PIN) | (1ULL << LEFT_MOTOR_A_AIN2_PIN) |
-                        (1ULL << RIGHT_MOTOR_B_BIN1_PIN) | (1ULL << RIGHT_MOTOR_B_BIN2_PIN),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    /* Apply the GPIO configuration */
-    esp_err_t err = gpio_config(&dir_control_gpio_config);
-    if (err != ESP_OK) 
+        web_server_print("Motor Control Mode: Direct Motor Control");
+        err = direct_motor_control_init();
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Direct motor control initialization failed: %s", esp_err_to_name(err));
+            return err;
+        }
+    }
+    else if(mode == ESP_NOW_MOTOR_CONTROLLER)
     {
-        ESP_LOGE(TAG, "GPIO config failed: %s", esp_err_to_name(err));
-        return err;
+        web_server_print("Motor Control Mode: ESP-NOW Motor Controller");
+        err = esp_now_motor_controller_init();
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "ESP-NOW motor controller initialization failed: %s", esp_err_to_name(err));
+            return err;
+        }
+    }
+    else
+    {
+        web_server_print("Motor Control Mode: Unknown");
+        return ESP_FAIL;
     }
 
-    /* #02 - Set the initial state of the direction control pins to LOW (coast/stop) */
-    gpio_set_level(LEFT_MOTOR_A_AIN1_PIN, 0);
-    gpio_set_level(LEFT_MOTOR_A_AIN2_PIN, 0);
-    gpio_set_level(RIGHT_MOTOR_B_BIN1_PIN, 0);
-    gpio_set_level(RIGHT_MOTOR_B_BIN2_PIN, 0);
-
-    /* #03 - Define and apply the LEDC configuration for PWM control of the motors */
-    ledc_timer_config_t ledc_timer = 
-    {
-        .speed_mode       = LEDC_MODE,
-        .timer_num        = LEDC_TIMER,
-        .duty_resolution  = LEDC_DUTY_RES,
-        .freq_hz          = LEDC_FREQUENCY,
-        .clk_cfg          = LEDC_AUTO_CLK
-    };
-    /* Apply the LEDC timer configuration */
-    err = ledc_timer_config(&ledc_timer);
-    if (err != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "LEDC timer config failed: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    /* #04 - Define and apply the LEDC channel configuration for PWM control (speed) of each motor set (A and B) */
-    /* Configuration of the left motors (A) */
-    ledc_channel_config_t left_motor_ledc_channel_A = 
-    {
-        .speed_mode     = LEDC_MODE,
-        .channel        = LEFT_MOTOR_LEDC_CHANNEL_A,
-        .timer_sel      = LEDC_TIMER,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = LEFT_MOTOR_A_PWMA_PIN,
-        .duty           = INITIAL_LEDC_DUTY,
-        .hpoint         = LEDC_HPOINT
-    };
-    /* Apply the LEDC channel configuration for left motors (A) */
-    err = ledc_channel_config(&left_motor_ledc_channel_A);
-    if (err != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "LEDC channel A config failed: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    /* Configuration of the right motors (B) */
-    ledc_channel_config_t right_motor_ledc_channel_B = 
-    {
-        .speed_mode     = LEDC_MODE,
-        .channel        = RIGHT_MOTOR_LEDC_CHANNEL_B,
-        .timer_sel      = LEDC_TIMER,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = RIGHT_MOTOR_B_PWMB_PIN,
-        .duty           = INITIAL_LEDC_DUTY,
-        .hpoint         = LEDC_HPOINT
-    };
-    /* Apply the LEDC channel configuration for right motors (B) */
-    err = ledc_channel_config(&right_motor_ledc_channel_B);
-    if (err != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "LEDC channel B config failed: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    /* #05 - Create the motor control task */
-    BaseType_t task_created = xTaskCreate(motor_task, "motor_task", MOTOR_TASK_STACK_SIZE, NULL, MOTOR_TASK_PRIORITY, NULL);
+    /* Create the motor control task */
+    BaseType_t task_created = xTaskCreate(motor_task, "motor_task", MOTOR_TASK_STACK_SIZE, (void*)mode, MOTOR_TASK_PRIORITY, NULL);
     if (task_created != pdPASS) 
     {
         ESP_LOGE(TAG, "Failed to create motor control task");
@@ -542,12 +512,119 @@ esp_err_t motor_turn_right(int pwm)
 /*                     STATIC FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
 
+static esp_err_t direct_motor_control_init(void)
+{
+    /* #01 - Define and apply the GPIO configuration for pins which are used for motor control, specifically
+     * the direction control pins (AIN1, AIN2 for left motors and BIN1, BIN2 for right motors) */
+    gpio_config_t dir_control_gpio_config = 
+    {
+        .pin_bit_mask = (1ULL << LEFT_MOTOR_A_AIN1_PIN) | (1ULL << LEFT_MOTOR_A_AIN2_PIN) |
+                        (1ULL << RIGHT_MOTOR_B_BIN1_PIN) | (1ULL << RIGHT_MOTOR_B_BIN2_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    /* Apply the GPIO configuration */
+    esp_err_t err = gpio_config(&dir_control_gpio_config);
+    if (err != ESP_OK) 
+    {
+        ESP_LOGE(TAG, "GPIO config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    /* #02 - Set the initial state of the direction control pins to LOW (coast/stop) */
+    gpio_set_level(LEFT_MOTOR_A_AIN1_PIN, 0);
+    gpio_set_level(LEFT_MOTOR_A_AIN2_PIN, 0);
+    gpio_set_level(RIGHT_MOTOR_B_BIN1_PIN, 0);
+    gpio_set_level(RIGHT_MOTOR_B_BIN2_PIN, 0);
+
+    /* #03 - Define and apply the LEDC configuration for PWM control of the motors */
+    ledc_timer_config_t ledc_timer = 
+    {
+        .speed_mode       = LEDC_MODE,
+        .timer_num        = LEDC_TIMER,
+        .duty_resolution  = LEDC_DUTY_RES,
+        .freq_hz          = LEDC_FREQUENCY,
+        .clk_cfg          = LEDC_AUTO_CLK
+    };
+    /* Apply the LEDC timer configuration */
+    err = ledc_timer_config(&ledc_timer);
+    if (err != ESP_OK) 
+    {
+        ESP_LOGE(TAG, "LEDC timer config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    /* #04 - Define and apply the LEDC channel configuration for PWM control (speed) of each motor set (A and B) */
+    /* Configuration of the left motors (A) */
+    ledc_channel_config_t left_motor_ledc_channel_A = 
+    {
+        .speed_mode     = LEDC_MODE,
+        .channel        = LEFT_MOTOR_LEDC_CHANNEL_A,
+        .timer_sel      = LEDC_TIMER,
+        .intr_type      = LEDC_INTR_DISABLE,
+        .gpio_num       = LEFT_MOTOR_A_PWMA_PIN,
+        .duty           = INITIAL_LEDC_DUTY,
+        .hpoint         = LEDC_HPOINT
+    };
+    /* Apply the LEDC channel configuration for left motors (A) */
+    err = ledc_channel_config(&left_motor_ledc_channel_A);
+    if (err != ESP_OK) 
+    {
+        ESP_LOGE(TAG, "LEDC channel A config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    /* Configuration of the right motors (B) */
+    ledc_channel_config_t right_motor_ledc_channel_B = 
+    {
+        .speed_mode     = LEDC_MODE,
+        .channel        = RIGHT_MOTOR_LEDC_CHANNEL_B,
+        .timer_sel      = LEDC_TIMER,
+        .intr_type      = LEDC_INTR_DISABLE,
+        .gpio_num       = RIGHT_MOTOR_B_PWMB_PIN,
+        .duty           = INITIAL_LEDC_DUTY,
+        .hpoint         = LEDC_HPOINT
+    };
+    /* Apply the LEDC channel configuration for right motors (B) */
+    err = ledc_channel_config(&right_motor_ledc_channel_B);
+    if (err != ESP_OK) 
+    {
+        ESP_LOGE(TAG, "LEDC channel B config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t esp_now_motor_controller_init(void)
+{
+    /* Add the motor controller ESP32 as an ESP-NOW peer to be able to send commands to it */
+    esp_err_t err = esp_now_comm_add_peer(motor_controller_mac);
+    if (err != ESP_OK)
+    {
+        char peer_error_buffer[64];
+        snprintf(peer_error_buffer, sizeof(peer_error_buffer), "Failed to add motor controller peer: %s", esp_err_to_name(err));
+        web_server_print(peer_error_buffer);
+        return err;
+    }
+    else
+    {
+        web_server_print("Motor controller peer added successfully");
+    }
+
+    return ESP_OK;
+}
+
 static void motor_task(void *pvParameters) 
 {
     char rx_buffer[512];  // Buffer for UART data
     int lx = 0, ly = 0;   // Left joystick axes
     uint32_t no_data_counter = 0;  // Counter for UART timeout detection
-    
+ 
+    motor_control_mode_t mode = (motor_control_mode_t)pvParameters;  // Cast back to the enum type
+
     ESP_LOGI(TAG, "Motor control task started - waiting for Xbox controller input");
     
     while (1)
@@ -593,8 +670,26 @@ static void motor_task(void *pvParameters)
                     if (right_motor_pwm > LEDC_DUTY_MAX) right_motor_pwm = LEDC_DUTY_MAX;
                     if (right_motor_pwm < -LEDC_DUTY_MAX) right_motor_pwm = -LEDC_DUTY_MAX;
                     
-                    /* Apply motor speeds */
-                    motor_set_speed(left_motor_pwm, right_motor_pwm);
+
+                    if(mode == DIRECT_MOTOR_CONTROL)
+                    {
+                        /* Apply motor speeds directly */
+                        motor_set_speed(left_motor_pwm, right_motor_pwm);
+                    }
+                    else if(mode == ESP_NOW_MOTOR_CONTROLLER)
+                    {
+                        /* Send motor speeds via ESP-NOW to motor controller */
+                        char motor_cmd[32];
+                        snprintf(motor_cmd, sizeof(motor_cmd), "L:%d|R:%d", left_motor_pwm, right_motor_pwm);
+                        
+                        esp_err_t send_err = esp_now_comm_send(motor_controller_mac, (uint8_t*)motor_cmd, strlen(motor_cmd));
+                        if (send_err != ESP_OK)
+                        {
+                            char error_buffer[64];
+                            snprintf(error_buffer, sizeof(error_buffer), "Failed to send motor command: %s", esp_err_to_name(send_err));
+                            web_server_print(error_buffer);
+                        }
+                    }
                 }
             }
             else

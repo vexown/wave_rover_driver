@@ -369,7 +369,8 @@ static void init_components(void)
 
     /******************************* Motor Control *******************************/
     LOG_TO_RPI("Initializing Motor Control...");
-    esp_err_t motor_err = motor_init();
+    motor_control_mode_t mode = ESP_NOW_MOTOR_CONTROLLER;
+    esp_err_t motor_err = motor_init(mode);
     if (motor_err != ESP_OK)
     {
         LOG_TO_RPI("Motor initialization failed: %s", esp_err_to_name(motor_err)); // Log the error but continue execution (TODO: Decide how to handle failure)
