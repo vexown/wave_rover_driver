@@ -28,6 +28,7 @@
 
 /* Project Includes */
 #include "motor_control.h"
+#include "roarm_m3_motor_control.h"
 #include "web_server.h"
 #include "Common.h"
 #include "comms_uart.h"
@@ -602,6 +603,8 @@ static esp_err_t esp_now_motor_controller_init(void)
 {
     /* Add the motor controller ESP32 as an ESP-NOW peer to be able to send commands to it */
     esp_err_t err = esp_now_comm_add_peer(motor_controller_mac);
+    /* Add the RoArm-M3's ESP32 as an ESP-NOW peer too */
+    err = esp_now_comm_add_peer(roarm_mac);
     if (err != ESP_OK)
     {
         char peer_error_buffer[64];
@@ -624,6 +627,9 @@ static void motor_task(void *pvParameters)
     uint32_t no_data_counter = 0;  // Counter for UART timeout detection
  
     motor_control_mode_t mode = (motor_control_mode_t)pvParameters;  // Cast back to the enum type
+
+    roarm_control_light(255);
+    vTaskDelay(pdMS_TO_TICKS(2000));
 
     ESP_LOGI(TAG, "Motor control task started - waiting for Xbox controller input");
     
