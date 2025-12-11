@@ -35,7 +35,7 @@
 /*******************************************************************************/
 /*                                 MACROS                                      */
 /*******************************************************************************/
-#define FW_VERSION "01.16" // Firmware version (MAJOR.MINOR)
+#define FW_VERSION "01.17" // Firmware version (MAJOR.MINOR)
 
 #define TASK_APP_MAIN_PERIOD_TICKS pdMS_TO_TICKS(2000)
 
