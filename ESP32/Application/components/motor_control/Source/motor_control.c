@@ -815,6 +815,15 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
         static uint8_t prev_lt_active = 0;
         static uint8_t prev_rt_active = 0;
         
+        /* Check if any joint control is active (to block LT/RT when other controls are pressed) */
+        bool any_joint_control_active = 
+            (abs(controller.rx) > XBOX_DEADZONE) ||      // Joint 1 (BASE)
+            (abs(controller.ry) > XBOX_DEADZONE) ||      // Joint 2 (SHOULDER)
+            (abs(controller.dpy) != 0) ||                 // Joint 3 (ELBOW) - D-Pad Up/Down
+            (abs(controller.dpx) != 0) ||                 // Joint 4 (WRIST) - D-Pad Left/Right
+            (controller.lb == 1) ||                       // Joint 5 (ROLL) - LB
+            (controller.rb == 1);                         // Joint 5 (ROLL) - RB
+        
         /* === Joint 1: BASE - Right Stick X === */
         if (abs(controller.rx) > XBOX_DEADZONE)
         {
@@ -913,34 +922,48 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
         }
         
         /* === Joint 6: GRIPPER - LT/RT === */
-        float lt_normalized = (float)controller.lt / XBOX_TRIGGER_MAX_VALUE;
-        float rt_normalized = (float)controller.rt / XBOX_TRIGGER_MAX_VALUE;
-        const float TRIGGER_THRESHOLD = 0.1f;
-        
-        /* LT: Close gripper (increase angle) */
-        if (lt_normalized > TRIGGER_THRESHOLD)
+        /* ONLY process gripper if no other joint controls are active */
+        if (!any_joint_control_active)
         {
-            uint8_t speed = (uint8_t)(lt_normalized * 5);  // Reduced speed for smoother control
-            roarm_send_constant_ctrl(6, 2, speed);  // EOAT_JOINT increase (close)
-            prev_lt_active = 1;
+            float lt_normalized = (float)controller.lt / XBOX_TRIGGER_MAX_VALUE;
+            float rt_normalized = (float)controller.rt / XBOX_TRIGGER_MAX_VALUE;
+            const float TRIGGER_THRESHOLD = 0.1f;
+            
+            /* LT: Close gripper (increase angle) */
+            if (lt_normalized > TRIGGER_THRESHOLD)
+            {
+                uint8_t speed = (uint8_t)(lt_normalized * 5);  // Reduced speed for smoother control
+                roarm_send_constant_ctrl(6, 2, speed);  // EOAT_JOINT increase (close)
+                prev_lt_active = 1;
+            }
+            else if (prev_lt_active == 1)
+            {
+                roarm_send_constant_ctrl(6, 0, 0);  // Stop gripper
+                prev_lt_active = 0;
+            }
+            
+            /* RT: Open gripper (decrease angle) */
+            if (rt_normalized > TRIGGER_THRESHOLD)
+            {
+                uint8_t speed = (uint8_t)(rt_normalized * 5);  // Reduced speed for smoother control
+                roarm_send_constant_ctrl(6, 1, speed);  // EOAT_JOINT decrease (open)
+                prev_rt_active = 1;
+            }
+            else if (prev_rt_active == 1)
+            {
+                roarm_send_constant_ctrl(6, 0, 0);  // Stop gripper
+                prev_rt_active = 0;
+            }
         }
-        else if (prev_lt_active == 1)
+        else
         {
-            roarm_send_constant_ctrl(6, 0, 0);  // Stop gripper
-            prev_lt_active = 0;
-        }
-        
-        /* RT: Open gripper (decrease angle) */
-        if (rt_normalized > TRIGGER_THRESHOLD)
-        {
-            uint8_t speed = (uint8_t)(rt_normalized * 5);  // Reduced speed for smoother control
-            roarm_send_constant_ctrl(6, 1, speed);  // EOAT_JOINT decrease (open)
-            prev_rt_active = 1;
-        }
-        else if (prev_rt_active == 1)
-        {
-            roarm_send_constant_ctrl(6, 0, 0);  // Stop gripper
-            prev_rt_active = 0;
+            /* Stop gripper if other controls become active while gripper was moving */
+            if (prev_lt_active == 1 || prev_rt_active == 1)
+            {
+                roarm_send_constant_ctrl(6, 0, 0);
+                prev_lt_active = 0;
+                prev_rt_active = 0;
+            }
         }
 
 
