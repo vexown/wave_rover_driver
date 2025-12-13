@@ -78,14 +78,14 @@ esp_err_t roarm_send_joint_angles(const uint8_t *mac, float base, float shoulder
 esp_err_t roarm_send_json_cmd(const uint8_t *mac, const char *json_cmd)
 {
     roarm_message_t msg = {
-        .devCode = 0,
-        .base = 0,
-        .shoulder = 0,
-        .elbow = 0,
-        .wrist = 0,
-        .roll = 0,
-        .hand = 0,
-        .cmd = 1,  /* JSON command */
+        .devCode = 0,   // ||
+        .base = 0,      // ||
+        .shoulder = 0,  // ||
+        .elbow = 0,     // | ===> UNUSED FIELDS WHEN .cmd = 1 or .cmd = 2
+        .wrist = 0,     // ||
+        .roll = 0,      // ||
+        .hand = 0,      // ||
+        .cmd = 2,       // JSON deferred processing (RECOMMENDED - safe, non-blocking)
     };
     
     strncpy(msg.message, json_cmd, MAX_MESSAGE_LEN - 1);

@@ -37,7 +37,44 @@
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
 
-/* Message structure matching the RoArm-M3 Arduino project */
+/*
+ * ESP-NOW Message Structure for RoArm-M3 Control
+ * 
+ * This structure matches the Arduino project's struct_message defined in esp_now_ctrl.h
+ * and is used to send control commands wirelessly via ESP-NOW protocol.
+ * 
+ * Fields:
+ * 
+ * devCode (uint8_t):
+ *   - Device identifier for multi-arm control
+ *   - Typically set to 0 for single device setups
+ *   - Used in group control scenarios to address specific robots
+ * 
+ * base, shoulder, elbow, wrist, roll, hand (float):
+ *   - Joint angles in radians for direct servo control
+ *   - Only used when cmd = 0 (Direct Joint Control mode)
+ *   - Ignored when cmd = 1 or cmd = 2 (JSON command modes)
+ *   - Values typically range based on mechanical limits of each joint
+ * 
+ * cmd (uint8_t):
+ *   - Command processing mode selector (see detailed explanation below)
+ *   - 0 = Direct joint control (uses float fields above)
+ *   - 1 = JSON immediate (AVOID - blocks ESP-NOW ISR)
+ *   - 2 = JSON deferred (RECOMMENDED - safe, non-blocking)
+ *   - 3 = Debug/print message only
+ * 
+ * message[MAX_MESSAGE_LEN] (char array):
+ *   - JSON command string when cmd = 1 or cmd = 2
+ *   - Must be null-terminated C string
+ *   - Example: "{\"T\":100}" for CMD_MOVE_INIT
+ *   - Example: "{\"T\":104,\"x\":235.0,\"y\":0.0,\"z\":234.0,\"t\":0.0,\"r\":0.0,\"g\":3.14,\"spd\":0.25}"
+ *   - Parsed by ArduinoJson library on receiver side
+ *   - Ignored when cmd = 0
+ * 
+ * Usage Pattern:
+ *   For movement commands: Set cmd = 2, populate message field with JSON
+ *   For real-time mirroring: Set cmd = 0, populate joint angle fields
+ */
 typedef struct {
     uint8_t devCode;
     float base;
