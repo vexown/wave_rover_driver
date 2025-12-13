@@ -126,6 +126,17 @@
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
 
+/* Xbox controller state structure */
+typedef struct {
+    int lx, ly;     // Left stick
+    int rx, ry;     // Right stick
+    int lt, rt;     // Triggers
+    int dpx, dpy;   // D-pad
+    int a, b, x, y; // Face buttons
+    int lb, rb;     // Bumpers
+    int back, start, guide; // Other buttons
+} xbox_controller_t;
+
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DECLARATIONS                            */
 /*******************************************************************************/
@@ -188,16 +199,23 @@ static void motor_task(void *pvParameters);
 static int map_axis_to_pwm(int axis_value);
 
 /**
+ * @brief Map Xbox axis value to angle in radians with deadzone.
+ *
+ * @param axis_value Raw axis value from Xbox controller (-32767 to 32767).
+ * @return float Angle in radians (-1.57 to 1.57).
+ */
+static float map_axis_to_angle(int axis_value);
+
+/**
  * @brief Parse Xbox controller data from UART message.
  *
- * Expected format: S|LX:value|LY:value|...|E\n
+ * Expected format: S|LX:value|LY:value|RX:value|RY:value|LT:value|RT:value|DPX:value|DPY:value|A:value|B:value|X:value|Y:value|LB:value|RB:value|BACK:value|START:value|GUIDE:value|E\n
  *
  * @param data The received UART data string.
- * @param lx Pointer to store left joystick X axis value.
- * @param ly Pointer to store left joystick Y axis value.
+ * @param controller Pointer to xbox_controller_t struct to fill.
  * @return esp_err_t ESP_OK on success, ESP_FAIL on parse error.
  */
-static esp_err_t parse_xbox_data(const char* data, int* lx, int* ly);
+static esp_err_t parse_xbox_data(const char* data, xbox_controller_t* controller);
 
 /**
  * @brief Process Xbox controller input and control motors.
@@ -635,9 +653,6 @@ static void motor_task(void *pvParameters)
  
     motor_control_mode_t mode = (motor_control_mode_t)pvParameters;  // Cast back to the enum type
 
-    roarm_control_light(255);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
     ESP_LOGI(TAG, "Motor control task started - waiting for Xbox controller input");
     
     while (1)
@@ -680,16 +695,20 @@ static void motor_task(void *pvParameters)
 
 static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
 {
-    int lx = 0, ly = 0;
+    xbox_controller_t controller;
+    
     /* Parse the Xbox controller data */
-    if (parse_xbox_data(rx_buffer, &lx, &ly) == ESP_OK)
+    esp_err_t parsing_status = parse_xbox_data(rx_buffer, &controller);
+
+    if(parsing_status == ESP_OK)
     {
+        /* === ROVER MOTOR CONTROL (Left Stick) === */
         /* LY controls forward/backward (inverted: negative = forward)
          * LX controls left/right turning (inverted: negative = right) */
         
         /* Map joystick values to PWM */
-        int forward_pwm = map_axis_to_pwm(-ly);  // Invert Y axis
-        int turn_pwm = map_axis_to_pwm(-lx);     // Invert X axis
+        int forward_pwm = map_axis_to_pwm(-controller.ly);  // Invert Y axis
+        int turn_pwm = map_axis_to_pwm(-controller.lx);     // Invert X axis
         
         /* Check if joystick is centered (both axes in deadzone) */
         if (forward_pwm == 0 && turn_pwm == 0)
@@ -732,6 +751,87 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
                 }
             }
         }
+
+        /* === ROARM-M3 CONTROL === */
+        
+        /* Right stick: Base rotation (RX) */
+        if (abs(controller.rx) > XBOX_DEADZONE)
+        {
+            float base_angle = map_axis_to_angle(-controller.rx); // Left/Right rotation (inverted to match RoArm orientation)
+            roarm_control_joint(1, base_angle, 200, 20);         // BASE_JOINT
+        }
+        else
+        {
+            /* Hold the current position */
+
+        }
+        /* Right stick: Shoulder elevation (RY) */
+        if (abs(controller.ry) > XBOX_DEADZONE)
+        {
+            float shoulder_angle = map_axis_to_angle(controller.ry);
+            roarm_control_joint(2, shoulder_angle, 200, 20);     // SHOULDER_JOINT
+        }
+        else
+        {
+            /* Hold the current position */
+            
+        }
+
+
+
+        // /* Triggers: Elbow (LT) and Wrist (RT) control */
+        // /* Only send if values changed significantly */
+        // if (abs(controller.lt - prev_lt) > XBOX_DEADZONE)
+        // {
+        //     if (controller.lt > XBOX_DEADZONE)
+        //     {
+        //         float elbow_angle = (float)controller.lt / XBOX_MAX_AXIS_VALUE * 1.57f;
+        //         roarm_control_joint(3, elbow_angle, 200, 20);        // ELBOW_JOINT
+        //     }
+        //     prev_lt = controller.lt;
+        // }
+        
+        // if (abs(controller.rt - prev_rt) > XBOX_DEADZONE)
+        // {
+        //     if (controller.rt > XBOX_DEADZONE)
+        //     {
+        //         float wrist_angle = (float)controller.rt / XBOX_MAX_AXIS_VALUE * 1.57f;
+        //         roarm_control_joint(4, wrist_angle, 200, 20);        // WRIST_JOINT
+        //     }
+        //     prev_rt = controller.rt;
+        // }
+
+        // /* Bumpers: Gripper control (on press, not hold) */
+        // if (controller.lb && !prev_lb)
+        // {
+        //     roarm_control_gripper(1.57f);  // Open gripper (90 degrees)
+        //     ESP_LOGI(TAG, "RoArm: Opening gripper");
+        // }
+        // prev_lb = controller.lb;
+        
+        // if (controller.rb && !prev_rb)
+        // {
+        //     roarm_control_gripper(3.14f);  // Close gripper (180 degrees)
+        //     ESP_LOGI(TAG, "RoArm: Closing gripper");
+        // }
+        // prev_rb = controller.rb;
+
+        // /* Face Buttons: Presets and utility functions */
+        // /* A Button: Move to initial/home position (on press) */
+        // if (controller.a && !prev_a)
+        // {
+        //     roarm_move_init();
+        //     ESP_LOGI(TAG, "RoArm: Moving to home position");
+        // }
+        // prev_a = controller.a;
+        
+        // /* B Button: Emergency stop / Release torque (on press) */
+        // if (controller.b && !prev_b)
+        // {
+        //     roarm_move_init();  // Safe position
+        //     ESP_LOGI(TAG, "RoArm: Emergency stop");
+        // }
+        // prev_b = controller.b;
     }
     else
     {
@@ -975,6 +1075,25 @@ static esp_err_t all_motors_set_brake(void)
     return ESP_OK;
 }
 
+static float map_axis_to_angle(int axis_value)
+{
+    /* Apply deadzone */
+    if (abs(axis_value) < XBOX_DEADZONE)
+    {
+        return 0.0f;
+    }
+    
+    /* Map from ±32767 to ±1.57 radians (±90 degrees) */
+    float normalized = (float)axis_value / (float)XBOX_MAX_AXIS_VALUE;
+    float angle = normalized * 1.57f;
+    
+    /* Clamp to valid range */
+    if (angle > 1.57f) angle = 1.57f;
+    if (angle < -1.57f) angle = -1.57f;
+    
+    return angle;
+}
+
 static int map_axis_to_pwm(int axis_value)
 {
     /* Apply deadzone */
@@ -995,9 +1114,44 @@ static int map_axis_to_pwm(int axis_value)
     return pwm;
 }
 
-static esp_err_t parse_xbox_data(const char* data, int* lx, int* ly)
+static esp_err_t parse_xbox_data(const char* data, xbox_controller_t* controller)
 {
-    /* Expected format: S|LX:value|LY:value|...|E\n */
+    /*
+     * ============================================================================
+     * Xbox 360 Controller Mapping (Experimentally Determined)
+     * ============================================================================
+     * This mapping was determined using the test_controller_mapping.py diagnostic tool
+     * and is specific to the Xbox 360 controller with Microsoft Wireless Receiver.
+     *
+     * AXES (Analog inputs, range: -32767 to 32767):
+     * -----------------------------------------------
+     * Index 0: Left Joystick X-axis (LX)
+     * Index 1: Left Joystick Y-axis (LY)
+     * Index 2: Right Joystick X-axis (RX)
+     * Index 3: Right Joystick Y-axis (RY)
+     * Index 4: Right Trigger (RT) - 32767 fully pressed, -32767 fully released
+     * Index 5: Left Trigger (LT) - 32767 fully pressed, -32767 fully released
+     * Index 6: D-Pad X-axis (DPX) - -32767 left, 32767 right, 0 centered
+     * Index 7: D-Pad Y-axis (DPY) - -32767 up, 32767 down, 0 centered
+     *
+     * BUTTONS (Digital inputs, 0=released, 1=pressed):
+     * ------------------------------------------------
+     * Index 0: A button
+     * Index 1: B button
+     * Index 2: X button
+     * Index 3: Y button
+     * Index 4: Left Bumper (LB)
+     * Index 5: Right Bumper (RB)
+     * Index 6: Back button
+     * Index 7: Start button
+     * Index 8: Guide button (Xbox logo) - NOTE: Not included in controller_state
+     * Index 9: Left Joystick Press (L3) - NOTE: Not included in controller_state
+     * Index 10: Right Joystick Press (R3) - NOTE: Not included in controller_state
+     * ============================================================================
+     *
+     * Expected format of the incoming UART data coming from Raspberry Pi:
+     * S|LX:value|LY:value|RX:value|RY:value|LT:value|RT:value|DPX:value|DPY:value|A:value|B:value|X:value|Y:value|LB:value|RB:value|BACK:value|START:value|GUIDE:value|E\n 
+     */
     
     /* Find the start marker */
     const char* start = strstr(data, "S|");
@@ -1007,28 +1161,28 @@ static esp_err_t parse_xbox_data(const char* data, int* lx, int* ly)
         return ESP_FAIL;
     }
     
-    /* Find LX value */
-    const char* lx_pos = strstr(start, "LX:");
-    if (lx_pos)
-    {
-        *lx = atoi(lx_pos + 3);  // Skip "LX:"
-    }
-    else
-    {
-        ESP_LOGW(TAG, "LX not found in Xbox data");
-        return ESP_FAIL;
-    }
+    /* Initialize all to 0 */
+    memset(controller, 0, sizeof(xbox_controller_t));
     
-    /* Find LY value */
-    const char* ly_pos = strstr(start, "LY:");
-    if (ly_pos)
+    /* Parse each field */
+    const char* fields[] = {"LX:", "LY:", "RX:", "RY:", "LT:", "RT:", "DPX:", "DPY:", "A:", "B:", "X:", "Y:", "LB:", "RB:", "BACK:", "START:", "GUIDE:"};
+    int* values[] = {&controller->lx, &controller->ly, &controller->rx, &controller->ry, &controller->lt, &controller->rt, &controller->dpx, &controller->dpy, &controller->a, &controller->b, &controller->x, &controller->y, &controller->lb, &controller->rb, &controller->back, &controller->start, &controller->guide};
+    
+    /* Print the whole received data */
+    web_server_print(data);
+
+    for (int i = 0; i < sizeof(fields)/sizeof(fields[0]); i++)
     {
-        *ly = atoi(ly_pos + 3);  // Skip "LY:"
-    }
-    else
-    {
-        ESP_LOGW(TAG, "LY not found in Xbox data");
-        return ESP_FAIL;
+        const char* pos = strstr(start, fields[i]);
+        if (pos)
+        {
+            *values[i] = atoi(pos + strlen(fields[i]));
+        }
+        else
+        {
+            ESP_LOGW(TAG, "%s not found in Xbox data", fields[i]);
+            // Don't fail, just set to 0
+        }
     }
     
     return ESP_OK;

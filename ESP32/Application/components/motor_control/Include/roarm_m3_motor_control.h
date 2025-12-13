@@ -133,10 +133,9 @@ void roarm_control_gripper(float angle_rad);
 void roarm_control_light(uint8_t brightness);
 
 /**
- * @brief Example task: Demonstrate various movements
+ * @brief Demo function: Demonstrate various movements
  *
- * @param pvParameter Task parameter (unused)
  */
-void roarm_demo(void *pvParameter);
+void roarm_demo(void);
 
 #endif /* ROARM_M3_MOTOR_CONTROL_H */

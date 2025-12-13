@@ -134,7 +134,7 @@ void roarm_control_light(uint8_t brightness)
     roarm_send_json_cmd(roarm_mac, json);
 }
 
-void roarm_demo(void *pvParameter)
+void roarm_demo(void)
 {
     vTaskDelay(pdMS_TO_TICKS(2000));  /* Wait for initialization */
     
