@@ -778,85 +778,169 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
 
         /* === ROARM-M3 CONTROL === */
         
-        /* A Button: Move to init position (on press, not hold) */
-        static int last_a_button = 0;
+        /* Button Controls - Edge detection */
+        static uint8_t last_a_button = 0;
+        static uint8_t last_b_button = 0;
+        
+        /* A Button: Move to init position */
         if (controller.a == 1 && last_a_button == 0)
         {
-            /* Button just pressed (rising edge) */
-            ESP_LOGI(TAG, "A button pressed - moving RoArm to init position");
+            ESP_LOGI(TAG, "A button: Moving RoArm to init position");
             roarm_move_init();
         }
         last_a_button = controller.a;
         
-        /* Track previous joystick states to detect when they return to center */
+        /* B Button: Emergency stop all movement */
+        if (controller.b == 1 && last_b_button == 0)
+        {
+            ESP_LOGI(TAG, "B button: Emergency stop - stopping all RoArm axes");
+            for (uint8_t axis = 1; axis <= 6; axis++)
+            {
+                roarm_send_constant_ctrl(axis, 0, 0);
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
+        }
+        last_b_button = controller.b;
+        
+        /* Track previous states for stop commands */
         static int16_t prev_rx = 0;
         static int16_t prev_ry = 0;
+        static uint8_t prev_lb = 0;
+        static uint8_t prev_rb = 0;
+        static uint8_t prev_dpad_up = 0;
+        static uint8_t prev_dpad_down = 0;
+        static uint8_t prev_dpad_left = 0;
+        static uint8_t prev_dpad_right = 0;
+        static uint8_t prev_lt_active = 0;
+        static uint8_t prev_rt_active = 0;
         
-        /* Right stick X: Base rotation (axis 1) */
+        /* === Joint 1: BASE - Right Stick X === */
         if (abs(controller.rx) > XBOX_DEADZONE)
         {
             uint8_t cmd = (controller.rx > 0) ? 2 : 1;  // 2=increase (right), 1=decrease (left)
-            uint8_t speed = (uint8_t)((float)abs(controller.rx) / XBOX_MAX_AXIS_VALUE * 100);
+            uint8_t speed = (uint8_t)((float)abs(controller.rx) / XBOX_MAX_AXIS_VALUE * 15);
             roarm_send_constant_ctrl(1, cmd, speed);  // BASE_JOINT
             prev_rx = controller.rx;
         }
         else if (abs(prev_rx) > XBOX_DEADZONE)
         {
-            /* Stick just returned to center - send stop */
-            roarm_send_constant_ctrl(1, 0, 0);
+            roarm_send_constant_ctrl(1, 0, 0);  // Stop base
             prev_rx = 0;
         }
         
-        /* Right stick Y: Shoulder elevation (axis 2) */
+        /* === Joint 2: SHOULDER - Right Stick Y === */
         if (abs(controller.ry) > XBOX_DEADZONE)
         {
-            uint8_t cmd = (controller.ry > 0) ? 2 : 1;  // 2=increase (up), 1=decrease (down)
-            uint8_t speed = (uint8_t)((float)abs(controller.ry) / XBOX_MAX_AXIS_VALUE * 100);
+            uint8_t cmd = (controller.ry > 0) ? 2 : 1;  // 2=increase (forward), 1=decrease (back)
+            uint8_t speed = (uint8_t)((float)abs(controller.ry) / XBOX_MAX_AXIS_VALUE * 15);
             roarm_send_constant_ctrl(2, cmd, speed);  // SHOULDER_JOINT
             prev_ry = controller.ry;
         }
         else if (abs(prev_ry) > XBOX_DEADZONE)
         {
-            /* Stick just returned to center - send stop */
-            roarm_send_constant_ctrl(2, 0, 0);
+            roarm_send_constant_ctrl(2, 0, 0);  // Stop shoulder
             prev_ry = 0;
         }
         
-        /* Triggers: Gripper control - ONLY send when triggers are pressed */
-        /* LT (Left Trigger): Open gripper */
-        /* RT (Right Trigger): Close gripper */
-        static float current_gripper_angle = 1.57f;  // Start at mid-position
-        const float GRIPPER_MIN_ANGLE = 0.0f;
-        const float GRIPPER_MAX_ANGLE = 3.14f;
-        const float GRIPPER_SPEED = 0.05f;  // Larger step for more responsive control
+        /* === Joint 3: ELBOW - D-Pad Up/Down === */
+        if (controller.dpy > 0)  // D-Pad Up
+        {
+            roarm_send_constant_ctrl(3, 1, 10);  // ELBOW_JOINT decrease (up)
+            prev_dpad_up = 1;
+        }
+        else if (prev_dpad_up == 1)
+        {
+            roarm_send_constant_ctrl(3, 0, 0);  // Stop elbow
+            prev_dpad_up = 0;
+        }
         
+        if (controller.dpy < 0)  // D-Pad Down
+        {
+            roarm_send_constant_ctrl(3, 2, 10);  // ELBOW_JOINT increase (down)
+            prev_dpad_down = 1;
+        }
+        else if (prev_dpad_down == 1)
+        {
+            roarm_send_constant_ctrl(3, 0, 0);  // Stop elbow
+            prev_dpad_down = 0;
+        }
+        
+        /* === Joint 4: WRIST (Pitch) - D-Pad Left/Right === */
+        if (controller.dpx < 0)  // D-Pad Left
+        {
+            roarm_send_constant_ctrl(4, 1, 10);  // WRIST_JOINT decrease (up)
+            prev_dpad_left = 1;
+        }
+        else if (prev_dpad_left == 1)
+        {
+            roarm_send_constant_ctrl(4, 0, 0);  // Stop wrist
+            prev_dpad_left = 0;
+        }
+        
+        if (controller.dpx > 0)  // D-Pad Right
+        {
+            roarm_send_constant_ctrl(4, 2, 10);  // WRIST_JOINT increase (down)
+            prev_dpad_right = 1;
+        }
+        else if (prev_dpad_right == 1)
+        {
+            roarm_send_constant_ctrl(4, 0, 0);  // Stop wrist
+            prev_dpad_right = 0;
+        }
+        
+        /* === Joint 5: ROLL (Wrist rotation) - LB/RB === */
+        if (controller.lb == 1)
+        {
+            roarm_send_constant_ctrl(5, 1, 10);  // ROLL_JOINT decrease (counter-clockwise)
+            prev_lb = 1;
+        }
+        else if (prev_lb == 1)
+        {
+            roarm_send_constant_ctrl(5, 0, 0);  // Stop roll
+            prev_lb = 0;
+        }
+        
+        if (controller.rb == 1)
+        {
+            roarm_send_constant_ctrl(5, 2, 10);  // ROLL_JOINT increase (clockwise)
+            prev_rb = 1;
+        }
+        else if (prev_rb == 1)
+        {
+            roarm_send_constant_ctrl(5, 0, 0);  // Stop roll
+            prev_rb = 0;
+        }
+        
+        /* === Joint 6: GRIPPER - LT/RT === */
         float lt_normalized = (float)controller.lt / XBOX_TRIGGER_MAX_VALUE;
         float rt_normalized = (float)controller.rt / XBOX_TRIGGER_MAX_VALUE;
-        
         const float TRIGGER_THRESHOLD = 0.1f;
         
-        /* ONLY send gripper command when trigger is actually pressed */
+        /* LT: Open gripper (decrease angle) */
+        if (lt_normalized > TRIGGER_THRESHOLD)
+        {
+            uint8_t speed = (uint8_t)(lt_normalized * 15);
+            roarm_send_constant_ctrl(6, 1, speed);  // EOAT_JOINT decrease (open)
+            prev_lt_active = 1;
+        }
+        else if (prev_lt_active == 1)
+        {
+            roarm_send_constant_ctrl(6, 0, 0);  // Stop gripper
+            prev_lt_active = 0;
+        }
+        
+        /* RT: Close gripper (increase angle) */
         if (rt_normalized > TRIGGER_THRESHOLD)
         {
-            /* Right trigger - close gripper */
-            current_gripper_angle += GRIPPER_SPEED * rt_normalized;
-            if (current_gripper_angle > GRIPPER_MAX_ANGLE)
-            {
-                current_gripper_angle = GRIPPER_MAX_ANGLE;
-            }
-            roarm_control_gripper(current_gripper_angle);
+            uint8_t speed = (uint8_t)(rt_normalized * 15);
+            roarm_send_constant_ctrl(6, 2, speed);  // EOAT_JOINT increase (close)
+            prev_rt_active = 1;
         }
-        else if (lt_normalized > TRIGGER_THRESHOLD)
+        else if (prev_rt_active == 1)
         {
-            /* Left trigger - open gripper */
-            current_gripper_angle -= GRIPPER_SPEED * lt_normalized;
-            if (current_gripper_angle < GRIPPER_MIN_ANGLE)
-            {
-                current_gripper_angle = GRIPPER_MIN_ANGLE;
-            }
-            roarm_control_gripper(current_gripper_angle);
+            roarm_send_constant_ctrl(6, 0, 0);  // Stop gripper
+            prev_rt_active = 0;
         }
-        /* NO ELSE - Don't send gripper commands when triggers aren't pressed! */
 
 
     }
