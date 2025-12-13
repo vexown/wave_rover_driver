@@ -200,6 +200,14 @@ static int map_axis_to_pwm(int axis_value);
 static esp_err_t parse_xbox_data(const char* data, int* lx, int* ly);
 
 /**
+ * @brief Process Xbox controller input and control motors.
+ *
+ * @param rx_buffer The received UART data string.
+ * @param mode The motor control mode.
+ */
+static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode);
+
+/**
  * @brief Set the speed and direction for both motors.
  *
  * @param left_motors_pwm PWM duty cycle for the left motor (-255 to 255). Negative values indicate reverse direction.
@@ -623,7 +631,6 @@ static esp_err_t esp_now_motor_controller_init(void)
 static void motor_task(void *pvParameters) 
 {
     char rx_buffer[512];  // Buffer for UART data
-    int lx = 0, ly = 0;   // Left joystick axes
     uint32_t no_data_counter = 0;  // Counter for UART timeout detection
  
     motor_control_mode_t mode = (motor_control_mode_t)pvParameters;  // Cast back to the enum type
@@ -646,70 +653,7 @@ static void motor_task(void *pvParameters)
             /* Null-terminate the received data */
             rx_buffer[rx_len] = '\0';
             
-            /* Parse the Xbox controller data */
-            if (parse_xbox_data(rx_buffer, &lx, &ly) == ESP_OK)
-            {
-                /* LY controls forward/backward (inverted: negative = forward)
-                 * LX controls left/right turning (inverted: negative = right) */
-                
-                /* Map joystick values to PWM */
-                int forward_pwm = map_axis_to_pwm(-ly);  // Invert Y axis
-                int turn_pwm = map_axis_to_pwm(-lx);     // Invert X axis
-                
-                /* Check if joystick is centered (both axes in deadzone) */
-                if (forward_pwm == 0 && turn_pwm == 0)
-                {
-                    /* Stop motors immediately when joystick is released */
-                    motor_set_speed(0, 0);
-                }
-                else
-                {
-                    /* Calculate differential drive (tank drive mixing)
-                     * Left motor = forward - turn
-                     * Right motor = forward + turn */
-                    int left_motor_pwm = forward_pwm - turn_pwm;
-                    int right_motor_pwm = forward_pwm + turn_pwm;
-                    
-                    /* Clamp final values */
-                    if (left_motor_pwm > LEDC_DUTY_MAX) left_motor_pwm = LEDC_DUTY_MAX;
-                    if (left_motor_pwm < -LEDC_DUTY_MAX) left_motor_pwm = -LEDC_DUTY_MAX;
-                    if (right_motor_pwm > LEDC_DUTY_MAX) right_motor_pwm = LEDC_DUTY_MAX;
-                    if (right_motor_pwm < -LEDC_DUTY_MAX) right_motor_pwm = -LEDC_DUTY_MAX;
-                    
-
-                    if(mode == DIRECT_MOTOR_CONTROL)
-                    {
-                        /* Apply motor speeds directly */
-                        motor_set_speed(left_motor_pwm, right_motor_pwm);
-                    }
-                    else if(mode == ESP_NOW_MOTOR_CONTROLLER)
-                    {
-                        /* Send motor speeds via ESP-NOW to motor controller */
-                        char motor_cmd[32];
-                        snprintf(motor_cmd, sizeof(motor_cmd), "L:%d|R:%d", left_motor_pwm, right_motor_pwm);
-                        
-                        esp_err_t send_err = esp_now_comm_send(motor_controller_mac, (uint8_t*)motor_cmd, strlen(motor_cmd));
-                        if (send_err != ESP_OK)
-                        {
-                            char error_buffer[64];
-                            snprintf(error_buffer, sizeof(error_buffer), "Failed to send motor command: %s", esp_err_to_name(send_err));
-                            web_server_print(error_buffer);
-                        }
-                    }
-                }
-            }
-            else
-            {
-                /* Only log parse failures occasionally to avoid spam */
-                static uint32_t parse_fail_counter = 0;
-                if (++parse_fail_counter % 100 == 0)
-                {
-                    char debug_buffer[64];
-                    snprintf(debug_buffer, sizeof(debug_buffer), 
-                             "Failed to parse Xbox data (100 failures)");
-                    web_server_print(debug_buffer);
-                }
-            }
+            process_xbox_input(rx_buffer, mode);
         }
         else
         {
@@ -731,6 +675,75 @@ static void motor_task(void *pvParameters)
         
         /* Small delay to prevent task hogging CPU */
         vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
+{
+    int lx = 0, ly = 0;
+    /* Parse the Xbox controller data */
+    if (parse_xbox_data(rx_buffer, &lx, &ly) == ESP_OK)
+    {
+        /* LY controls forward/backward (inverted: negative = forward)
+         * LX controls left/right turning (inverted: negative = right) */
+        
+        /* Map joystick values to PWM */
+        int forward_pwm = map_axis_to_pwm(-ly);  // Invert Y axis
+        int turn_pwm = map_axis_to_pwm(-lx);     // Invert X axis
+        
+        /* Check if joystick is centered (both axes in deadzone) */
+        if (forward_pwm == 0 && turn_pwm == 0)
+        {
+            /* Stop motors immediately when joystick is released */
+            motor_set_speed(0, 0);
+        }
+        else
+        {
+            /* Calculate differential drive (tank drive mixing)
+             * Left motor = forward - turn
+             * Right motor = forward + turn */
+            int left_motor_pwm = forward_pwm - turn_pwm;
+            int right_motor_pwm = forward_pwm + turn_pwm;
+            
+            /* Clamp final values */
+            if (left_motor_pwm > LEDC_DUTY_MAX) left_motor_pwm = LEDC_DUTY_MAX;
+            if (left_motor_pwm < -LEDC_DUTY_MAX) left_motor_pwm = -LEDC_DUTY_MAX;
+            if (right_motor_pwm > LEDC_DUTY_MAX) right_motor_pwm = LEDC_DUTY_MAX;
+            if (right_motor_pwm < -LEDC_DUTY_MAX) right_motor_pwm = -LEDC_DUTY_MAX;
+            
+
+            if(mode == DIRECT_MOTOR_CONTROL)
+            {
+                /* Apply motor speeds directly */
+                motor_set_speed(left_motor_pwm, right_motor_pwm);
+            }
+            else if(mode == ESP_NOW_MOTOR_CONTROLLER)
+            {
+                /* Send motor speeds via ESP-NOW to motor controller */
+                char motor_cmd[32];
+                snprintf(motor_cmd, sizeof(motor_cmd), "L:%d|R:%d", left_motor_pwm, right_motor_pwm);
+                
+                esp_err_t send_err = esp_now_comm_send(motor_controller_mac, (uint8_t*)motor_cmd, strlen(motor_cmd));
+                if (send_err != ESP_OK)
+                {
+                    char error_buffer[64];
+                    snprintf(error_buffer, sizeof(error_buffer), "Failed to send motor command: %s", esp_err_to_name(send_err));
+                    web_server_print(error_buffer);
+                }
+            }
+        }
+    }
+    else
+    {
+        /* Only log parse failures occasionally to avoid spam */
+        static uint32_t parse_fail_counter = 0;
+        if (++parse_fail_counter % 100 == 0)
+        {
+            char debug_buffer[64];
+            snprintf(debug_buffer, sizeof(debug_buffer), 
+                     "Failed to parse Xbox data (100 failures)");
+            web_server_print(debug_buffer);
+        }
     }
 }
 
