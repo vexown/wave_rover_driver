@@ -25,6 +25,7 @@
 #include "driver/ledc.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 /* Project Includes */
 #include "motor_control.h"
@@ -120,6 +121,7 @@
 /* Xbox Controller Configuration */
 #define XBOX_DEADZONE               (5000)      // Deadzone for joystick (out of ±32767)
 #define XBOX_MAX_AXIS_VALUE         (32767)     // Maximum axis value from Xbox controller
+#define XBOX_TRIGGER_MAX_VALUE      (255)       // Maximum trigger value from Xbox controller (0-255)
 #define UART_RX_TIMEOUT_MS          (100)       // Timeout for UART receive
 
 /*******************************************************************************/
@@ -154,6 +156,11 @@ typedef struct {
 /*******************************************************************************/
 /*    for variables defined in this .c file, to be used in other .c files.     */
 /*******************************************************************************/
+
+/* RoArm watchdog timer variables */
+static uint64_t last_roarm_command_time = 0;
+static const uint32_t ROARM_COMMAND_TIMEOUT_MS = 500;
+static bool roarm_control_active = false;
 
 /*******************************************************************************/
 /*                     STATIC FUNCTION DECLARATIONS                            */
@@ -224,6 +231,20 @@ static esp_err_t parse_xbox_data(const char* data, xbox_controller_t* controller
  * @param mode The motor control mode.
  */
 static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode);
+
+/**
+ * @brief Send constant control command to RoArm for a single axis.
+ *
+ * @param axis Joint ID (1=base, 2=shoulder, 3=elbow, 4=wrist, 5=roll, 6=eoat)
+ * @param cmd Command (0=stop, 1=decrease, 2=increase)
+ * @param speed Speed value (0-100)
+ */
+static void roarm_send_constant_ctrl(uint8_t axis, uint8_t cmd, uint8_t speed);
+
+/**
+ * @brief Check RoArm command timeout and send stop if needed.
+ */
+static void roarm_check_timeout(void);
 
 /**
  * @brief Set the speed and direction for both motors.
@@ -688,6 +709,9 @@ static void motor_task(void *pvParameters)
             }
         }
         
+        /* Check RoArm command timeout */
+        roarm_check_timeout();
+        
         /* Small delay to prevent task hogging CPU */
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -754,84 +778,87 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
 
         /* === ROARM-M3 CONTROL === */
         
-        /* Right stick: Base rotation (RX) */
+        /* A Button: Move to init position (on press, not hold) */
+        static int last_a_button = 0;
+        if (controller.a == 1 && last_a_button == 0)
+        {
+            /* Button just pressed (rising edge) */
+            ESP_LOGI(TAG, "A button pressed - moving RoArm to init position");
+            roarm_move_init();
+        }
+        last_a_button = controller.a;
+        
+        /* Track previous joystick states to detect when they return to center */
+        static int16_t prev_rx = 0;
+        static int16_t prev_ry = 0;
+        
+        /* Right stick X: Base rotation (axis 1) */
         if (abs(controller.rx) > XBOX_DEADZONE)
         {
-            float base_angle = map_axis_to_angle(-controller.rx); // Left/Right rotation (inverted to match RoArm orientation)
-            roarm_control_joint(1, base_angle, 200, 20);         // BASE_JOINT
+            uint8_t cmd = (controller.rx > 0) ? 2 : 1;  // 2=increase (right), 1=decrease (left)
+            uint8_t speed = (uint8_t)((float)abs(controller.rx) / XBOX_MAX_AXIS_VALUE * 100);
+            roarm_send_constant_ctrl(1, cmd, speed);  // BASE_JOINT
+            prev_rx = controller.rx;
         }
-        else
+        else if (abs(prev_rx) > XBOX_DEADZONE)
         {
-            /* Hold the current position */
-
+            /* Stick just returned to center - send stop */
+            roarm_send_constant_ctrl(1, 0, 0);
+            prev_rx = 0;
         }
-        /* Right stick: Shoulder elevation (RY) */
+        
+        /* Right stick Y: Shoulder elevation (axis 2) */
         if (abs(controller.ry) > XBOX_DEADZONE)
         {
-            float shoulder_angle = map_axis_to_angle(controller.ry);
-            roarm_control_joint(2, shoulder_angle, 200, 20);     // SHOULDER_JOINT
+            uint8_t cmd = (controller.ry > 0) ? 2 : 1;  // 2=increase (up), 1=decrease (down)
+            uint8_t speed = (uint8_t)((float)abs(controller.ry) / XBOX_MAX_AXIS_VALUE * 100);
+            roarm_send_constant_ctrl(2, cmd, speed);  // SHOULDER_JOINT
+            prev_ry = controller.ry;
         }
-        else
+        else if (abs(prev_ry) > XBOX_DEADZONE)
         {
-            /* Hold the current position */
-            
+            /* Stick just returned to center - send stop */
+            roarm_send_constant_ctrl(2, 0, 0);
+            prev_ry = 0;
         }
-
-
-
-        // /* Triggers: Elbow (LT) and Wrist (RT) control */
-        // /* Only send if values changed significantly */
-        // if (abs(controller.lt - prev_lt) > XBOX_DEADZONE)
-        // {
-        //     if (controller.lt > XBOX_DEADZONE)
-        //     {
-        //         float elbow_angle = (float)controller.lt / XBOX_MAX_AXIS_VALUE * 1.57f;
-        //         roarm_control_joint(3, elbow_angle, 200, 20);        // ELBOW_JOINT
-        //     }
-        //     prev_lt = controller.lt;
-        // }
         
-        // if (abs(controller.rt - prev_rt) > XBOX_DEADZONE)
-        // {
-        //     if (controller.rt > XBOX_DEADZONE)
-        //     {
-        //         float wrist_angle = (float)controller.rt / XBOX_MAX_AXIS_VALUE * 1.57f;
-        //         roarm_control_joint(4, wrist_angle, 200, 20);        // WRIST_JOINT
-        //     }
-        //     prev_rt = controller.rt;
-        // }
-
-        // /* Bumpers: Gripper control (on press, not hold) */
-        // if (controller.lb && !prev_lb)
-        // {
-        //     roarm_control_gripper(1.57f);  // Open gripper (90 degrees)
-        //     ESP_LOGI(TAG, "RoArm: Opening gripper");
-        // }
-        // prev_lb = controller.lb;
+        /* Triggers: Gripper control - ONLY send when triggers are pressed */
+        /* LT (Left Trigger): Open gripper */
+        /* RT (Right Trigger): Close gripper */
+        static float current_gripper_angle = 1.57f;  // Start at mid-position
+        const float GRIPPER_MIN_ANGLE = 0.0f;
+        const float GRIPPER_MAX_ANGLE = 3.14f;
+        const float GRIPPER_SPEED = 0.05f;  // Larger step for more responsive control
         
-        // if (controller.rb && !prev_rb)
-        // {
-        //     roarm_control_gripper(3.14f);  // Close gripper (180 degrees)
-        //     ESP_LOGI(TAG, "RoArm: Closing gripper");
-        // }
-        // prev_rb = controller.rb;
-
-        // /* Face Buttons: Presets and utility functions */
-        // /* A Button: Move to initial/home position (on press) */
-        // if (controller.a && !prev_a)
-        // {
-        //     roarm_move_init();
-        //     ESP_LOGI(TAG, "RoArm: Moving to home position");
-        // }
-        // prev_a = controller.a;
+        float lt_normalized = (float)controller.lt / XBOX_TRIGGER_MAX_VALUE;
+        float rt_normalized = (float)controller.rt / XBOX_TRIGGER_MAX_VALUE;
         
-        // /* B Button: Emergency stop / Release torque (on press) */
-        // if (controller.b && !prev_b)
-        // {
-        //     roarm_move_init();  // Safe position
-        //     ESP_LOGI(TAG, "RoArm: Emergency stop");
-        // }
-        // prev_b = controller.b;
+        const float TRIGGER_THRESHOLD = 0.1f;
+        
+        /* ONLY send gripper command when trigger is actually pressed */
+        if (rt_normalized > TRIGGER_THRESHOLD)
+        {
+            /* Right trigger - close gripper */
+            current_gripper_angle += GRIPPER_SPEED * rt_normalized;
+            if (current_gripper_angle > GRIPPER_MAX_ANGLE)
+            {
+                current_gripper_angle = GRIPPER_MAX_ANGLE;
+            }
+            roarm_control_gripper(current_gripper_angle);
+        }
+        else if (lt_normalized > TRIGGER_THRESHOLD)
+        {
+            /* Left trigger - open gripper */
+            current_gripper_angle -= GRIPPER_SPEED * lt_normalized;
+            if (current_gripper_angle < GRIPPER_MIN_ANGLE)
+            {
+                current_gripper_angle = GRIPPER_MIN_ANGLE;
+            }
+            roarm_control_gripper(current_gripper_angle);
+        }
+        /* NO ELSE - Don't send gripper commands when triggers aren't pressed! */
+
+
     }
     else
     {
@@ -843,6 +870,38 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
             snprintf(debug_buffer, sizeof(debug_buffer), 
                      "Failed to parse Xbox data (100 failures)");
             web_server_print(debug_buffer);
+        }
+    }
+}
+
+static void roarm_send_constant_ctrl(uint8_t axis, uint8_t cmd, uint8_t speed)
+{
+    /* Build JSON command for constant control (T:123) */
+    /* Format: {"T":123,"m":0,"axis":0,"cmd":0,"spd":3} */
+    char json[128];
+    snprintf(json, sizeof(json),
+             "{\"T\":123,\"m\":0,\"axis\":%d,\"cmd\":%d,\"spd\":%d}",
+             axis, cmd, speed);
+    
+    roarm_send_json_cmd(roarm_mac, json);
+}
+
+static void roarm_check_timeout(void)
+{
+    if (roarm_control_active)
+    {
+        uint64_t current_time = esp_timer_get_time() / 1000;  // Convert to milliseconds
+        
+        if ((current_time - last_roarm_command_time) > ROARM_COMMAND_TIMEOUT_MS)
+        {
+            /* Timeout exceeded - send emergency stop to all axes */
+            ESP_LOGW(TAG, "RoArm command timeout - sending stop commands");
+            for (uint8_t axis = 1; axis <= 6; axis++)
+            {
+                roarm_send_constant_ctrl(axis, 0, 0);
+                vTaskDelay(pdMS_TO_TICKS(5));  // Small delay between commands
+            }
+            roarm_control_active = false;
         }
     }
 }
