@@ -1168,8 +1168,8 @@ static esp_err_t parse_xbox_data(const char* data, xbox_controller_t* controller
     const char* fields[] = {"LX:", "LY:", "RX:", "RY:", "LT:", "RT:", "DPX:", "DPY:", "A:", "B:", "X:", "Y:", "LB:", "RB:", "BACK:", "START:", "GUIDE:"};
     int* values[] = {&controller->lx, &controller->ly, &controller->rx, &controller->ry, &controller->lt, &controller->rt, &controller->dpx, &controller->dpy, &controller->a, &controller->b, &controller->x, &controller->y, &controller->lb, &controller->rb, &controller->back, &controller->start, &controller->guide};
     
-    /* Print the whole received data */
-    web_server_print(data);
+    /* Print the whole received data [uncomment for debug] */
+    // web_server_print(data);
 
     for (int i = 0; i < sizeof(fields)/sizeof(fields[0]); i++)
     {
