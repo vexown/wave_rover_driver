@@ -787,6 +787,7 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
         {
             ESP_LOGI(TAG, "A button: Moving RoArm to init position");
             roarm_move_init();
+            vTaskDelay(pdMS_TO_TICKS(3000));
         }
         last_a_button = controller.a;
         
@@ -916,11 +917,11 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
         float rt_normalized = (float)controller.rt / XBOX_TRIGGER_MAX_VALUE;
         const float TRIGGER_THRESHOLD = 0.1f;
         
-        /* LT: Open gripper (decrease angle) */
+        /* LT: Close gripper (increase angle) */
         if (lt_normalized > TRIGGER_THRESHOLD)
         {
-            uint8_t speed = (uint8_t)(lt_normalized * 15);
-            roarm_send_constant_ctrl(6, 1, speed);  // EOAT_JOINT decrease (open)
+            uint8_t speed = (uint8_t)(lt_normalized * 5);  // Reduced speed for smoother control
+            roarm_send_constant_ctrl(6, 2, speed);  // EOAT_JOINT increase (close)
             prev_lt_active = 1;
         }
         else if (prev_lt_active == 1)
@@ -929,11 +930,11 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
             prev_lt_active = 0;
         }
         
-        /* RT: Close gripper (increase angle) */
+        /* RT: Open gripper (decrease angle) */
         if (rt_normalized > TRIGGER_THRESHOLD)
         {
-            uint8_t speed = (uint8_t)(rt_normalized * 15);
-            roarm_send_constant_ctrl(6, 2, speed);  // EOAT_JOINT increase (close)
+            uint8_t speed = (uint8_t)(rt_normalized * 5);  // Reduced speed for smoother control
+            roarm_send_constant_ctrl(6, 1, speed);  // EOAT_JOINT decrease (open)
             prev_rt_active = 1;
         }
         else if (prev_rt_active == 1)
