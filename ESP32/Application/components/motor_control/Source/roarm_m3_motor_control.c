@@ -91,6 +91,7 @@ esp_err_t roarm_send_json_cmd(const uint8_t *mac, const char *json_cmd)
     strncpy(msg.message, json_cmd, MAX_MESSAGE_LEN - 1);
     msg.message[MAX_MESSAGE_LEN - 1] = '\0';
     
+    vTaskDelay(pdMS_TO_TICKS(20));
     return esp_now_send((uint8_t *)mac, (uint8_t *)&msg, sizeof(roarm_message_t));
 }
 

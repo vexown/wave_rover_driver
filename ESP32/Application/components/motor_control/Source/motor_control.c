@@ -713,7 +713,7 @@ static void motor_task(void *pvParameters)
         roarm_check_timeout();
         
         /* Small delay to prevent task hogging CPU */
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
@@ -828,7 +828,7 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
         if (abs(controller.rx) > XBOX_DEADZONE)
         {
             uint8_t cmd = (controller.rx > 0) ? 2 : 1;  // 2=increase (right), 1=decrease (left)
-            uint8_t speed = (uint8_t)((float)abs(controller.rx) / XBOX_MAX_AXIS_VALUE * 15);
+            uint8_t speed = (uint8_t)((float)abs(controller.rx) / XBOX_MAX_AXIS_VALUE * 25);
             roarm_send_constant_ctrl(1, cmd, speed);  // BASE_JOINT
             prev_rx = controller.rx;
         }
@@ -842,7 +842,7 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
         if (abs(controller.ry) > XBOX_DEADZONE)
         {
             uint8_t cmd = (controller.ry > 0) ? 2 : 1;  // 2=increase (forward), 1=decrease (back)
-            uint8_t speed = (uint8_t)((float)abs(controller.ry) / XBOX_MAX_AXIS_VALUE * 15);
+            uint8_t speed = (uint8_t)((float)abs(controller.ry) / XBOX_MAX_AXIS_VALUE * 25);
             roarm_send_constant_ctrl(2, cmd, speed);  // SHOULDER_JOINT
             prev_ry = controller.ry;
         }
@@ -932,7 +932,7 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
             /* LT: Close gripper (increase angle) */
             if (lt_normalized > TRIGGER_THRESHOLD)
             {
-                uint8_t speed = (uint8_t)(lt_normalized * 5);  // Reduced speed for smoother control
+                uint8_t speed = (uint8_t)(lt_normalized);  // Reduced speed for smoother control
                 roarm_send_constant_ctrl(6, 2, speed);  // EOAT_JOINT increase (close)
                 prev_lt_active = 1;
             }
@@ -945,7 +945,7 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
             /* RT: Open gripper (decrease angle) */
             if (rt_normalized > TRIGGER_THRESHOLD)
             {
-                uint8_t speed = (uint8_t)(rt_normalized * 5);  // Reduced speed for smoother control
+                uint8_t speed = (uint8_t)(rt_normalized);  // Reduced speed for smoother control
                 roarm_send_constant_ctrl(6, 1, speed);  // EOAT_JOINT decrease (open)
                 prev_rt_active = 1;
             }
