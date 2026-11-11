@@ -96,7 +96,7 @@ flowchart TD
     main --> motor_control & web_server & IMU & NaviLogging & esp_now_comm & wifi_manager & oled_display & i2c_manager & Common
 
     motor_control --> web_server & esp_now_comm & comms_uart & Common
-    web_server --> motor_control & oled_display & wifi_manager
+    web_server --> motor_control & oled_display & wifi_manager & Common
     IMU --> web_server & i2c_manager & Fusion & Common
     NaviLogging --> web_server & esp_now_comm & Common
     esp_now_comm --> NaviLogging & Common
@@ -273,9 +273,19 @@ To accept data from a new ESP-NOW sender, add a MAC branch in
 | `/` | Control page (HTML in `HTML_page.c`) |
 | `/control?dir=forward\|backward\|left\|right\|stop&seq=N&sid=S` | Calls `motor_move_*` / `motor_stop`. `seq` is required; within one session (`sid`, random per page load) a request whose `seq` is not greater than the last one processed is ignored. A new `sid` starts a new count, so a reloaded page works immediately |
 | `/print` | Returns the `web_server_print` log buffer |
-| `/ota` | Starts HTTPS OTA from `FIRMWARE_UPGRADE_URL` (`web_server.c`), server cert in `certs/` |
+| `/ota` | Starts HTTPS OTA from `FIRMWARE_UPGRADE_URL` (`web_server.c`), server cert in `certs/`. See below |
 | `/reset` | Reboots |
 | `/ws` | WebSocket; IMU orientation is pushed to all connected clients |
+
+**OTA failure reporting.** `perform_ota_update()` first opens a plain TLS
+connection to the server with `esp-tls` (`ota_check_server()`), because
+`esp_https_ota()` only returns generic errors. If something fails,
+`ota_report_failure()` writes the reason, in plain language and with what to
+do about it, to the web log (`/print`), to the RPi over UART, and as a short
+reason on the OLED. It tells apart: server unreachable (`No server`),
+certificate doesn't match the embedded one (`Cert mismatch`), other TLS
+errors, invalid image (`Bad image`), running image not yet confirmed after a
+previous OTA (`Retry in 10s`), and other download failures.
 
 The web drive buttons are the backup control path when the RPi or Xbox
 controller is unavailable. They only need WiFi. While a button is held, the
@@ -338,6 +348,7 @@ fires after `UART_SILENCE_STOP_MS` (**500 ms**) without UART data.
 | WiFi SSID/password | `wifi_manager/include/WiFi_Credentials.h` – **git-ignored, create locally** with `#define WIFI_SSID` / `#define WIFI_PASSWORD` |
 | Firmware version | `FW_VERSION` in `main/app_main.c` |
 | OTA URL | `FIRMWARE_UPGRADE_URL` in `web_server/Source/web_server.c` |
+| OTA server cert | `web_server/certs/apache_ip_cert.crt`, embedded at build time. It must be the exact self-signed cert Apache serves (`/etc/ssl/certs/apache-selfsigned.crt` on the OTA PC). If the server cert is regenerated, copy it here and flash once over **serial**, because the old image can no longer connect to OTA. The firmware does not check cert validity dates (`CONFIG_MBEDTLS_HAVE_TIME_DATE` is off and the clock is never set), so an expired cert still works; only a *different* cert breaks OTA. |
 | Peer MACs | see table in §2 |
 | Motor mode | `mode` in `init_components()` (`app_main.c`) |
 | UART baud/pins | `comms_uart.h` |

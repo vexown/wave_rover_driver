@@ -31,6 +31,8 @@
 #include "esp_check.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
+#include "esp_tls.h"
+#include "esp_ota_ops.h"
 #include <lwip/sockets.h>
 
 /* Project Includes */
@@ -39,6 +41,7 @@
 #include "oled_display.h"
 #include "wifi_manager.h"
 #include "HTML_page.h"
+#include "Common.h"
 
 /*******************************************************************************/
 /*                                  MACROS                                     */
@@ -107,6 +110,33 @@ extern const uint8_t server_cert_pem_end[]   asm("_binary_apache_ip_cert_crt_end
  * @return void
  */
 static void perform_ota_update(void);
+
+/**
+ * @brief Report an OTA failure on the web log, UART (RPi) and OLED.
+ *
+ * @param oled_reason Short reason for the OLED (max 16 characters).
+ * @param message     Full explanation, ideally including what to do about it.
+ */
+static void ota_report_failure(const char *oled_reason, const char *message);
+
+/**
+ * @brief Check that the OTA server is reachable and its certificate matches the embedded one.
+ *
+ * @details Why this exists: when esp_https_ota() can't connect, it only returns a generic
+ *          esp_err_t (e.g. ESP_FAIL / ESP_ERR_HTTP_CONNECT). The detailed reason (server
+ *          unreachable, certificate not trusted, ...) is recorded by esp-tls inside the HTTP
+ *          client that esp_https_ota() creates and destroys internally, and esp_http_client
+ *          (ESP-IDF v5.4) has no API to read it out. ESP-IDF only logs it with ESP_LOGE, which
+ *          goes to the console UART that nothing listens to on this board.
+ *
+ *          So before starting the OTA we open our own TLS connection with esp-tls directly
+ *          (same URL, same embedded cert). Because we own that connection we can query
+ *          esp_tls_get_and_clear_last_error() and report a clear reason. Costs one extra TLS
+ *          connection (~1 s) per OTA attempt.
+ *
+ * @return true if a TLS connection succeeded, false otherwise (the reason is already reported).
+ */
+static bool ota_check_server(void);
 
 /**
  * @brief HTTP GET handler for the root ("/") URI.
@@ -441,18 +471,103 @@ bool web_server_is_connected(void)
 /*                     STATIC FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
 
+static void ota_report_failure(const char *oled_reason, const char *message)
+{
+    ESP_LOGE(TAG, "%s", message);
+    web_server_print(message);
+    LOG_TO_RPI("%s", message);
+
+    if (oled_err == ESP_OK)
+    {
+        oled_write_string(2, "OTA Failed!");
+        oled_write_string(3, oled_reason);
+        oled_refresh();
+    }
+}
+
+static bool ota_check_server(void)
+{
+    /* Open a plain TLS connection to the OTA server with the same embedded cert esp_https_ota uses.
+     * esp_https_ota() only returns generic errors, but esp-tls tells us exactly what went wrong. */
+    esp_tls_cfg_t tls_cfg =
+    {
+        .cacert_buf = server_cert_pem_start,
+        .cacert_bytes = server_cert_pem_end - server_cert_pem_start,
+        .timeout_ms = 5000,
+    };
+
+    esp_tls_t *tls = esp_tls_init();
+    if (tls == NULL)
+    {
+        ota_report_failure("Out of memory", "OTA failed: not enough memory to open a TLS connection.");
+        return false;
+    }
+
+    bool ok = (esp_tls_conn_http_new_sync(FIRMWARE_UPGRADE_URL, &tls_cfg, tls) == 1);
+    if (!ok)
+    {
+        esp_tls_error_handle_t err_handle = NULL;
+        int tls_code = 0;
+        int cert_flags = 0;
+        esp_err_t err = ESP_FAIL;
+        if (esp_tls_get_error_handle(tls, &err_handle) == ESP_OK)
+        {
+            err = esp_tls_get_and_clear_last_error(err_handle, &tls_code, &cert_flags);
+        }
+
+        char message[300];
+        if (cert_flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED)
+        {
+            snprintf(message, sizeof(message),
+                     "OTA failed: the server's certificate is not the one built into this firmware "
+                     "(web_server/certs/apache_ip_cert.crt). Copy the cert the server uses into the repo, "
+                     "rebuild and flash over serial. Server: %s", FIRMWARE_UPGRADE_URL);
+            ota_report_failure("Cert mismatch", message);
+        }
+        else if (err == ESP_ERR_ESP_TLS_FAILED_CONNECT_TO_HOST || err == ESP_ERR_ESP_TLS_CONNECTION_TIMEOUT ||
+                 err == ESP_ERR_ESP_TLS_CANNOT_RESOLVE_HOSTNAME)
+        {
+            snprintf(message, sizeof(message),
+                     "OTA failed: cannot reach the OTA server (%s). Is the PC on, still at that IP address, "
+                     "and is the web server running? URL: %s", esp_err_to_name(err), FIRMWARE_UPGRADE_URL);
+            ota_report_failure("No server", message);
+        }
+        else
+        {
+            snprintf(message, sizeof(message),
+                     "OTA failed: TLS connection to the OTA server failed (%s, TLS code -0x%04X, cert flags 0x%X). URL: %s",
+                     esp_err_to_name(err), (unsigned)-tls_code, (unsigned)cert_flags, FIRMWARE_UPGRADE_URL);
+            ota_report_failure("TLS error", message);
+        }
+    }
+
+    esp_tls_conn_destroy(tls);
+    return ok;
+}
+
 static void perform_ota_update()
 {
     ESP_LOGI(TAG, "Starting OTA update from URL: %s", FIRMWARE_UPGRADE_URL);
+    web_server_print("OTA: checking server...");
 
     /* Display OTA update status on OLED if available */
-    if (oled_err == ESP_OK) 
+    if (oled_err == ESP_OK)
     {
         oled_clear_buffer();
         oled_write_string(0, "WAVE ROVER");
         oled_write_string(1, "OTA Update...");
-        oled_write_string(2, "Downloading...");
+        oled_write_string(2, "Checking server");
         oled_write_string(3, ""); // Clear line 3
+        oled_refresh();
+    }
+
+    /* Pre-check: can we reach the server and do we trust its certificate? Reports the reason if not. */
+    if (!ota_check_server()) return;
+
+    web_server_print("OTA: server OK, downloading...");
+    if (oled_err == ESP_OK)
+    {
+        oled_write_string(2, "Downloading...");
         oled_refresh();
     }
 
@@ -496,17 +611,27 @@ static void perform_ota_update()
     }
     else
     {
-        ESP_LOGE(TAG, "OTA Update Failed: %s", esp_err_to_name(ret));
-        /* Display "OTA Failed!" message on OLED if available along with error code */
-        if (oled_err == ESP_OK)
+        /* The server was reachable and trusted (pre-check passed), so the problem is the download or the image */
+        char message[300];
+        if (ret == ESP_ERR_OTA_VALIDATE_FAILED)
         {
-            char err_buf[20]; // Buffer to hold error message
-            snprintf(err_buf, sizeof(err_buf), "Err: %s", esp_err_to_name(ret));
-            err_buf[sizeof(err_buf)-1] = '\0'; // Ensure null termination
-
-            oled_write_string(2, "OTA Failed!");
-            oled_write_string(3, err_buf);
-            oled_refresh();
+            snprintf(message, sizeof(message),
+                     "OTA failed: the downloaded file is not a valid firmware image for this board. URL: %s",
+                     FIRMWARE_UPGRADE_URL);
+            ota_report_failure("Bad image", message);
+        }
+        else if (ret == ESP_ERR_OTA_ROLLBACK_INVALID_STATE)
+        {
+            ota_report_failure("Retry in 10s",
+                               "OTA failed: the running firmware was just installed and isn't confirmed yet. "
+                               "Wait about 10 seconds after boot and try again.");
+        }
+        else
+        {
+            snprintf(message, sizeof(message),
+                     "OTA failed while downloading (%s). Check that the URL is right and the file is on the server "
+                     "(run UploadImageToServer.sh). URL: %s", esp_err_to_name(ret), FIRMWARE_UPGRADE_URL);
+            ota_report_failure("Download failed", message);
         }
     }
 }
