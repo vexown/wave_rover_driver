@@ -29,8 +29,11 @@
 /* If you use UART0 with this component, you may interfere with standard output */
 /* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 #define COMMS_UART_NUM          UART_NUM_0
-#define COMMS_UART_TX_PIN       (UART_PIN_NO_CHANGE) // Use default TX pin (GPIO1)
-#define COMMS_UART_RX_PIN       (UART_PIN_NO_CHANGE) // Use default RX pin (GPIO3)
+/* The RPi link pins must be set explicitly, not UART_PIN_NO_CHANGE: the ESP-IDF console is on
+ * UART1 (sdkconfig), and in that case the bootloader switches GPIO1/GPIO3 back to plain GPIO.
+ * With NO_CHANGE, UART0 then isn't connected to any pins and the RPi link is dead both ways. */
+#define COMMS_UART_TX_PIN       (1) // GPIO1 = U0TXD -> RPi RX
+#define COMMS_UART_RX_PIN       (3) // GPIO3 = U0RXD <- RPi TX
 #define COMMS_UART_RTS_PIN      (UART_PIN_NO_CHANGE) // No RTS
 #define COMMS_UART_CTS_PIN      (UART_PIN_NO_CHANGE) // No CTS
 #define COMMS_UART_BAUD_RATE    (921600)

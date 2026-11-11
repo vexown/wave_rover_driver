@@ -73,7 +73,7 @@ lowercase `include/` and `src/`.
 | Component        | Responsibility | Public API (header) | Owns a task? |
 |------------------|----------------|---------------------|--------------|
 | `Common`         | `LOG_TO_RPI(...)` – printf-style logging that is sent to the RPi over UART | `Common.h` | no |
-| `comms_uart`     | UART0 driver wrapper (921600 baud, default pins GPIO1/3) | `comms_uart.h` | no |
+| `comms_uart`     | UART0 driver wrapper (921600 baud, pins GPIO1/3 set explicitly, because the bootloader unroutes them when the console is on UART1) | `comms_uart.h` | no |
 | `i2c_manager`    | Owns the single I2C master bus (SDA 32, SCL 33, 400 kHz) and hands out the bus handle | `i2c_manager.h` | no |
 | `oled_display`   | 4-line text buffer on the OLED; `oled_write_string` + `oled_refresh` | `oled_display.h` | no |
 | `wifi_manager`   | WiFi STA bring-up; **blocks** until connected or 5 retries fail. Calls back on disconnect / status change | `wifi_manager.h` | no (event handlers) |
