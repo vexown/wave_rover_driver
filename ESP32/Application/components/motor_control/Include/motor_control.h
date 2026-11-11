@@ -30,6 +30,12 @@
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
 /*******************************************************************************/
+/*  - DIRECT_MOTOR_CONTROL: drives the on-board H-bridge; the command holds until changed.
+ *  - ESP_NOW_MOTOR_CONTROLLER: sends one "L:<pwm>|R:<pwm>" packet to the motor controller,
+ *    which stops by itself when packets stop arriving (see the wave_rover_motor_driver repo
+ *    for its timeout). For continuous motion the caller must keep repeating the call faster
+ *    than that timeout (the web UI repeats every 50 ms).
+ */
 typedef enum
 {
     DIRECT_MOTOR_CONTROL,

@@ -571,25 +571,35 @@ const char *HTML_PAGE = R"rawliteral(
         // --- Debounce Configuration ---
         const DEBOUNCE_PRESS_DELAY = 50;   // ms: Ignore presses faster than this
         const DEBOUNCE_RELEASE_DELAY = 150; // ms: Refractory period after release before new press allowed
+        // While a button is held the command is resent at this interval. In ESP-NOW mode the
+        // motor controller stops by itself when commands stop arriving, so this must stay well
+        // below its timeout (see the wave_rover_motor_driver repo). If the page/WiFi dies, the
+        // repeats stop and so does the rover.
+        const COMMAND_REPEAT_INTERVAL = 50; // ms
 
         // --- State Variables ---
         let commandSequenceNumber = 0; // For tracking command sequence to prevent out-of-sequence command processing on receiving side
+        // Random id per page load. The counter above restarts on every load, so the server uses this to tell
+        // a new page apart from stale requests of the current one.
+        const sessionId = Math.random().toString(36).slice(2, 10);
         let canSendCommand = true;
         let pressTimeout = null;
         let releaseTimeout = null;
         let isTouching = false; // Prevent firing mouse events after touch events
+        let repeatInterval = null; // Resends the held direction every COMMAND_REPEAT_INTERVAL
+        let repeatInFlight = false; // A repeated command is still waiting for its response
 
         // --- Core Command Function ---
-        function sendCmd(dir) {
+        function sendCmd(dir, quiet = false) {
             commandSequenceNumber++; // Increment command sequence number for each command sent
             const currentSeq = commandSequenceNumber; // Capture current sequence number for logging
 
             // Send command to server including the sequence number
-            console.log(`Sending Command: ${dir} (Seq: ${currentSeq})`); // Log with sequence
-            fetch(`/control?dir=${dir}&seq=${currentSeq}`) 
+            if (!quiet) console.log(`Sending Command: ${dir} (Seq: ${currentSeq})`); // Log with sequence
+            return fetch(`/control?dir=${dir}&seq=${currentSeq}&sid=${sessionId}`)
                 .then(response => response.text())
                 .then(data => {
-                    console.log(`Command sent: ${dir} (Seq: ${currentSeq}), Response: ${data}`);
+                    if (!quiet) console.log(`Command sent: ${dir} (Seq: ${currentSeq}), Response: ${data}`);
                 })
                 .catch(error => {
                     console.error(`Error sending command ${dir} (Seq: ${currentSeq}):`, error);
@@ -606,6 +616,16 @@ const char *HTML_PAGE = R"rawliteral(
                 sendCmd(direction);
                 canSendCommand = false; // Prevent immediate re-trigger
 
+                // Keep resending while held. Skip a tick if the previous repeat hasn't been
+                // answered yet so requests don't pile up when WiFi is slow.
+                clearInterval(repeatInterval);
+                repeatInFlight = false;
+                repeatInterval = setInterval(() => {
+                    if (repeatInFlight) return;
+                    repeatInFlight = true;
+                    sendCmd(direction, true).finally(() => { repeatInFlight = false; });
+                }, COMMAND_REPEAT_INTERVAL);
+
                 // Set a short timeout to ignore rapid bounces/re-presses
                 pressTimeout = setTimeout(() => {
                     // This timeout doesn't make canSendCommand true, 
@@ -620,6 +640,8 @@ const char *HTML_PAGE = R"rawliteral(
         function handleRelease() {
             clearTimeout(pressTimeout);   // Clear any pending press timeout
             clearTimeout(releaseTimeout); // Clear previous refractory timeout
+            clearInterval(repeatInterval); // Stop resending the held direction
+            repeatInterval = null;
 
             sendCmd('stop'); // Always send stop immediately on release
 
@@ -774,6 +796,19 @@ const char *HTML_PAGE = R"rawliteral(
         }
 
         // --- Event Listener Setup ---
+        // If the page loses focus or is hidden while a button is held, the release event may never
+        // arrive and background tabs throttle timers, so stop instead of driving in stutters.
+        function releaseIfHeld() {
+            if (repeatInterval !== null) {
+                console.log('Page lost focus/visibility while driving - stopping');
+                handleRelease();
+            }
+        }
+        window.addEventListener('blur', releaseIfHeld);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) releaseIfHeld();
+        });
+
         window.addEventListener('DOMContentLoaded', (event) => {
             console.log('DOM fully loaded and parsed');
             

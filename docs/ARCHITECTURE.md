@@ -39,7 +39,7 @@ flowchart LR
     Xbox[Xbox 360 controller] -->|USB receiver| RPi[Raspberry Pi<br/>upper computer]
     RPi <-->|UART0 @ 921600<br/>controller frames in,<br/>logs + IMU out| ESP[ESP32<br/>this firmware]
 
-    ESP -->|ESP-NOW<br/>'L:&lt;pwm&gt;&#124;R:&lt;pwm&gt;'| MC[Motor-controller ESP32]
+    ESP -->|ESP-NOW<br/>'L:&lt;pwm&gt;&#124;R:&lt;pwm&gt;'| MC[Motor-controller ESP32<br/>+ external H-bridges]
     ESP -->|ESP-NOW<br/>roarm_message_t + JSON| ARM[RoArm-M3 ESP32]
     GPS[Navi / GPS ESP32] -->|ESP-NOW<br/>navi_coordinates_type| ESP
 
@@ -47,7 +47,7 @@ flowchart LR
     ESP -->|HTTPS GET firmware .bin| OTA[OTA server]
 
     ESP --- I2C[I2C bus<br/>OLED · QMI8658 · AK09918]
-    ESP -.->|LEDC PWM + GPIO<br/>DIRECT mode only| Motors[On-board motor driver]
+    ESP -.->|LEDC PWM + GPIO<br/>DIRECT mode, unused| Motors[On-board H-bridge<br/>not connected]
 ```
 
 ESP-NOW peers are identified by **hard-coded MAC addresses**:
@@ -209,12 +209,21 @@ Every joint sends a "stop" (`cmd:0`) on the release edge.
 
 **Motor modes** (`motor_control_mode_t`):
 
-- `ESP_NOW_MOTOR_CONTROLLER` (current default): left/right PWM go out as the
-  ASCII string `L:<int>|R:<int>` to the motor-controller ESP32. The local LEDC
-  and GPIO are **not** configured in this mode.
-- `DIRECT_MOTOR_CONTROL`: drives the on-board H-bridge directly. PWMA/PWMB on
-  GPIO 25/26 (LEDC, 8-bit, 100 kHz) and direction AIN1/AIN2 = 21/17,
-  BIN1/BIN2 = 22/23.
+- `ESP_NOW_MOTOR_CONTROLLER` (**in use**): left/right PWM go out as the
+  ASCII string `L:<int>|R:<int>` to the motor-controller ESP32, which drives
+  the external H-bridges. The local LEDC and GPIO are **not** configured in
+  this mode. This firmware relies on the motor controller stopping the motors
+  by itself when packets stop arriving. How it does that, and how quickly, is
+  defined in the `wave_rover_motor_driver` repo, so check there.
+- `DIRECT_MOTOR_CONTROL` (**unused, legacy**): drives the driver board's
+  on-board H-bridge directly. The rover's motors have since been replaced
+  with bigger ones on external H-bridges, so the on-board H-bridge is not
+  connected to anything. Pins: PWMA/PWMB on GPIO 25/26 (LEDC, 8-bit,
+  100 kHz), direction AIN1/AIN2 = 21/17, BIN1/BIN2 = 22/23.
+
+All drive output goes through `rover_apply_speed()` in `motor_control.c`,
+which picks the backend from the mode stored by `motor_init()`. The public
+`motor_stop` / `motor_move_*` / `motor_turn_*` work in both modes.
 
 **RoArm-M3 protocol** (`roarm_m3_motor_control.c`): every message is a
 `roarm_message_t` struct sent raw over ESP-NOW. `cmd = 2` means "JSON in
@@ -262,15 +271,24 @@ To accept data from a new ESP-NOW sender, add a MAC branch in
 | URI | Purpose |
 |-----|---------|
 | `/` | Control page (HTML in `HTML_page.c`) |
-| `/control?dir=forward\|backward\|left\|right\|stop&seq=N` | Calls `motor_move_*` / `motor_stop`. `seq` is required; a request whose `seq` is not greater than the last one processed is ignored |
+| `/control?dir=forward\|backward\|left\|right\|stop&seq=N&sid=S` | Calls `motor_move_*` / `motor_stop`. `seq` is required; within one session (`sid`, random per page load) a request whose `seq` is not greater than the last one processed is ignored. A new `sid` starts a new count, so a reloaded page works immediately |
 | `/print` | Returns the `web_server_print` log buffer |
 | `/ota` | Starts HTTPS OTA from `FIRMWARE_UPGRADE_URL` (`web_server.c`), server cert in `certs/` |
 | `/reset` | Reboots |
 | `/ws` | WebSocket; IMU orientation is pushed to all connected clients |
 
-The `/control` endpoint calls `motor_move_*`, which only drives the local
-H-bridge, so in `ESP_NOW_MOTOR_CONTROLLER` mode it does not reach the motor
-controller.
+The web drive buttons are the backup control path when the RPi or Xbox
+controller is unavailable. They only need WiFi. While a button is held, the
+page resends its command every 50 ms (`COMMAND_REPEAT_INTERVAL` in
+`HTML_page.c`), because the motor controller stops when packets stop arriving.
+The interval has to stay shorter than the motor controller's command timeout;
+check `wave_rover_motor_driver` for its current value. On release the page
+sends `stop`. If the page loses focus or is hidden, it releases. If the
+browser or WiFi dies, the repeats stop and the motor controller stops the
+rover.
+
+The Xbox path sends nothing while the stick is centred (ESP-NOW mode), so the
+two control paths don't fight. If both are active, the last packet wins.
 
 ### 5.5 Logging: where output goes
 
@@ -288,16 +306,28 @@ the RPi side has to separate log lines from its own traffic.
 
 ## 6. Safety stops
 
-| Trigger | What happens | Where |
-|---------|--------------|-------|
-| Joystick back in deadzone | `motor_set_speed(0, 0)` | `process_xbox_input` |
-| No UART data for `UART_SILENCE_STOP_MS` (500 ms) | `motor_set_speed(0, 0)` | `motor_task` |
-| WiFi disconnect | `motor_stop()` via `on_wifi_disconnect` callback | `app_main.c` |
+For `ESP_NOW_MOTOR_CONTROLLER` mode (the one in use):
+
+| Trigger | What this firmware does | Where |
+|---------|-------------------------|-------|
+| Joystick back in deadzone | Sends nothing; motor controller stops on its own | `process_xbox_input` |
+| No UART data (RPi/controller gone) | Sends nothing; motor controller stops on its own | `motor_task` |
+| WiFi disconnect | `motor_stop()` → sends `L:0\|R:0` | `on_wifi_disconnect` in `app_main.c` |
+| Web button released / Stop | `motor_stop()` → sends `L:0\|R:0` | `/control?dir=stop` |
+| Browser/WiFi dies mid-press | Repeats stop; motor controller stops on its own | `HTML_page.c` |
 | B button | Stop all 6 arm axes | `process_xbox_input` |
 | Joint released | Stop that joint | `process_xbox_input` |
 
-All rover stops above act on the **local** H-bridge (`motor_set_speed` /
-`motor_stop`). See the note on motor modes in §5.1.
+"Stops on its own" is the motor controller's behaviour when packets stop
+arriving. See the `wave_rover_motor_driver` repo for how that's implemented.
+
+The Xbox path deliberately does **not** send a stop when the stick is centred
+or the UART goes quiet. That would override the web UI, which is the backup
+path for exactly the case where the RPi isn't sending.
+
+In `DIRECT_MOTOR_CONTROL` mode (unused) the stick-centred and UART-silence
+stops brake the on-board H-bridge on every loop instead. The UART-silence stop
+fires after `UART_SILENCE_STOP_MS` (**500 ms**) without UART data.
 
 ---
 

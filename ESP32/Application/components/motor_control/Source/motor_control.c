@@ -123,7 +123,7 @@
 #define XBOX_MAX_AXIS_VALUE         (32767)     // Maximum axis value from Xbox controller
 #define XBOX_TRIGGER_MAX_VALUE      (255)       // Maximum trigger value from Xbox controller (0-255)
 #define UART_RX_TIMEOUT_MS          (100)       // Timeout for UART receive
-#define UART_SILENCE_STOP_MS        (500)       // Stop motors after this long without UART data
+#define UART_SILENCE_STOP_MS        (500)       // Stop motors (DIRECT mode) after this long without UART data
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
@@ -257,6 +257,34 @@ static void roarm_check_timeout(void);
 static esp_err_t motor_set_speed(int left_motors_pwm, int right_motors_pwm);
 
 /**
+ * @brief Apply left/right speeds using whichever backend the active mode uses.
+ *
+ * - DIRECT_MOTOR_CONTROL: drives the on-board H-bridge via motor_set_speed().
+ * - ESP_NOW_MOTOR_CONTROLLER: sends "L:<left>|R:<right>" to the motor controller ESP32.
+ *
+ * In ESP-NOW mode the motor controller stops the motors by itself when commands
+ * stop arriving (see the wave_rover_motor_driver repo for its timeout), so callers
+ * that want continuous motion must keep calling this.
+ *
+ * Does not take motor_mutex - callers handle locking.
+ *
+ * @param left_pwm  Left side PWM (-255 to 255). Negative values indicate reverse direction.
+ * @param right_pwm Right side PWM (-255 to 255). Negative values indicate reverse direction.
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+static esp_err_t rover_apply_speed(int left_pwm, int right_pwm);
+
+/**
+ * @brief Log a drive state message only when it differs from the previous one.
+ *
+ * The web UI repeats its command while a button is held, so logging every call
+ * would flood the web_server_print buffer.
+ *
+ * @param message Status message (logged to ESP_LOGI and web_server_print).
+ */
+static void log_drive_state(const char *message);
+
+/**
  * @brief Controls the left motor's direction and speed.
  *
  * Sets the direction pins (AIN1, AIN2) based on the sign of pwm_val
@@ -349,6 +377,9 @@ static SemaphoreHandle_t motor_mutex = NULL;
 /* Motor controller ESP32 MAC address for testing communications */
 static uint8_t motor_controller_mac[6] = {0xB4, 0x3A, 0x45, 0x89, 0x61, 0x54};
 
+/* Mode selected in motor_init(). Decides how rover_apply_speed() moves the motors. */
+static motor_control_mode_t active_mode = DIRECT_MOTOR_CONTROL;
+
 /*******************************************************************************/
 /*                     GLOBAL FUNCTION DEFINITIONS                             */
 /*******************************************************************************/
@@ -363,6 +394,8 @@ esp_err_t motor_init(const motor_control_mode_t mode)
         ESP_LOGE(TAG, "Failed to create motor mutex");
         return ESP_FAIL;
     }
+
+    active_mode = mode;
 
     if(mode == DIRECT_MOTOR_CONTROL)
     {
@@ -408,47 +441,56 @@ esp_err_t motor_stop(void)
 
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGI(TAG, "Stopping motors");
-        web_server_print("Stopping motors");
+        log_drive_state("Stopping motors");
 
-        /* Set all motors to brake (active braking). You could also use coast (freewheel) if desired. */
-        esp_err_t err_brake = all_motors_set_brake();
-        if (err_brake != ESP_OK) 
+        if (active_mode == ESP_NOW_MOTOR_CONTROLLER)
         {
-            ESP_LOGE(TAG, "Failed to set motors to brake: %s", esp_err_to_name(err_brake));
-            xSemaphoreGive(motor_mutex); 
-            return err_brake;
+            /* Explicit zero command to the motor controller (it would also stop on its own
+             * when commands stop arriving, but this makes the stop immediate). */
+            esp_err_t err = rover_apply_speed(0, 0);
+            xSemaphoreGive(motor_mutex);
+            return err;
         }
-
-        /* Set the duty cycle of both left motors (A) to 0 (stop) */
-        esp_err_t duty_err_set_A = ledc_set_duty(LEDC_MODE, LEFT_MOTOR_LEDC_CHANNEL_A, 0);
-        if (duty_err_set_A != ESP_OK) 
+        else // DIRECT_MOTOR_CONTROL
         {
-            ESP_LOGE(TAG, "Failed to set left motor duty to 0: %s", esp_err_to_name(duty_err_set_A));
-            xSemaphoreGive(motor_mutex); 
-            return duty_err_set_A;
-        }
-        esp_err_t duty_err_update_A = ledc_update_duty(LEDC_MODE, LEFT_MOTOR_LEDC_CHANNEL_A);
-        if (duty_err_update_A != ESP_OK) 
-        {
-            ESP_LOGE(TAG, "Failed to update left motor duty: %s", esp_err_to_name(duty_err_update_A));
-            xSemaphoreGive(motor_mutex); 
-            return duty_err_update_A;
-        }
-        /* Set the duty cycle of both right motors (B) to 0 (stop) */
-        esp_err_t duty_err_set_B = ledc_set_duty(LEDC_MODE, RIGHT_MOTOR_LEDC_CHANNEL_B, 0);
-        if (duty_err_set_B != ESP_OK) 
-        {
-            ESP_LOGE(TAG, "Failed to set right motor duty to 0: %s", esp_err_to_name(duty_err_set_B));
-            xSemaphoreGive(motor_mutex); 
-            return duty_err_set_B;
-        }
-        esp_err_t duty_err_update_B = ledc_update_duty(LEDC_MODE, RIGHT_MOTOR_LEDC_CHANNEL_B);
-        if (duty_err_update_B != ESP_OK) 
-        {
-            ESP_LOGE(TAG, "Failed to update right motor duty: %s", esp_err_to_name(duty_err_update_B));
-            xSemaphoreGive(motor_mutex); 
-            return duty_err_update_B;
+            /* Set all motors to brake (active braking). You could also use coast (freewheel) if desired. */
+            esp_err_t err_brake = all_motors_set_brake();
+            if (err_brake != ESP_OK) 
+            {
+                ESP_LOGE(TAG, "Failed to set motors to brake: %s", esp_err_to_name(err_brake));
+                xSemaphoreGive(motor_mutex); 
+                return err_brake;
+            }
+            /* Set the duty cycle of both left motors (A) to 0 (stop) */
+            esp_err_t duty_err_set_A = ledc_set_duty(LEDC_MODE, LEFT_MOTOR_LEDC_CHANNEL_A, 0);
+            if (duty_err_set_A != ESP_OK) 
+            {
+                ESP_LOGE(TAG, "Failed to set left motor duty to 0: %s", esp_err_to_name(duty_err_set_A));
+                xSemaphoreGive(motor_mutex); 
+                return duty_err_set_A;
+            }
+            esp_err_t duty_err_update_A = ledc_update_duty(LEDC_MODE, LEFT_MOTOR_LEDC_CHANNEL_A);
+            if (duty_err_update_A != ESP_OK) 
+            {
+                ESP_LOGE(TAG, "Failed to update left motor duty: %s", esp_err_to_name(duty_err_update_A));
+                xSemaphoreGive(motor_mutex); 
+                return duty_err_update_A;
+            }
+            /* Set the duty cycle of both right motors (B) to 0 (stop) */
+            esp_err_t duty_err_set_B = ledc_set_duty(LEDC_MODE, RIGHT_MOTOR_LEDC_CHANNEL_B, 0);
+            if (duty_err_set_B != ESP_OK) 
+            {
+                ESP_LOGE(TAG, "Failed to set right motor duty to 0: %s", esp_err_to_name(duty_err_set_B));
+                xSemaphoreGive(motor_mutex); 
+                return duty_err_set_B;
+            }
+            esp_err_t duty_err_update_B = ledc_update_duty(LEDC_MODE, RIGHT_MOTOR_LEDC_CHANNEL_B);
+            if (duty_err_update_B != ESP_OK) 
+            {
+                ESP_LOGE(TAG, "Failed to update right motor duty: %s", esp_err_to_name(duty_err_update_B));
+                xSemaphoreGive(motor_mutex); 
+                return duty_err_update_B;
+            }           
         }
     }
     else
@@ -468,10 +510,9 @@ esp_err_t motor_move_forward(int pwm)
 
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGI(TAG, "Moving forward with PWM: %d", pwm);
-        web_server_print("Moving forward");
+        log_drive_state("Moving forward");
 
-        esp_err_t err = motor_set_speed(pwm, pwm); 
+        esp_err_t err = rover_apply_speed(pwm, pwm); 
         xSemaphoreGive(motor_mutex);
         return err;
     }
@@ -488,15 +529,14 @@ esp_err_t motor_move_backward(int pwm)
     
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGI(TAG, "Moving backward with PWM: %d", pwm);
-        web_server_print("Moving backward");
+        log_drive_state("Moving backward");
 
         /* Allow the flexibility of providing either positive or negative PWM values for backward movement.
         * If the user provides a positive value to this function, we convert it to negative for backward movement 
         * since we assume the user wants to move backward which requires negative PWM values in our code logic. */
         int speed = (pwm < 0) ? pwm : -pwm;
 
-        esp_err_t err = motor_set_speed(speed, speed);
+        esp_err_t err = rover_apply_speed(speed, speed);
         xSemaphoreGive(motor_mutex);
         return err;
     }
@@ -513,15 +553,14 @@ esp_err_t motor_turn_left(int pwm)
     
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGI(TAG, "Turning left with PWM: %d", pwm);
-        web_server_print("Turning left");
+        log_drive_state("Turning left");
 
         /* Going left means the left motor should go backward and the right motor should go forward.
         * We take the absolute value of the provided PWM as the speed of the turning. We set the sign 
         * for each motor accordingly to achieve the desired turning effect. */
         int speed = abs(pwm);
 
-        esp_err_t err = motor_set_speed(-speed, speed);
+        esp_err_t err = rover_apply_speed(-speed, speed);
         xSemaphoreGive(motor_mutex);
         return err;
     }
@@ -538,15 +577,14 @@ esp_err_t motor_turn_right(int pwm)
     
     if (xSemaphoreTake(motor_mutex, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGI(TAG, "Turning right with PWM: %d", pwm);
-        web_server_print("Turning right");
+        log_drive_state("Turning right");
 
         /* Going right means the left motor should go forward and the right motor should go backward.
         * We take the absolute value of the provided PWM as the speed of the turning. We set the sign 
         * for each motor accordingly to achieve the desired turning effect. */
         int speed = abs(pwm);
 
-        esp_err_t err = motor_set_speed(speed, -speed);
+        esp_err_t err = rover_apply_speed(speed, -speed);
         xSemaphoreGive(motor_mutex);
         return err;
     }
@@ -694,9 +732,15 @@ static void motor_task(void *pvParameters)
         }
         else
         {
-            /* Safety: stop the motors if no UART data has arrived for UART_SILENCE_STOP_MS (500 ms). */
+            /* Safety: stop the motors if no UART data has arrived for UART_SILENCE_STOP_MS (500 ms).
+             *
+             * DIRECT mode only. In ESP-NOW mode:
+             *  - nothing is sent while there is no UART data, and the motor controller stops
+             *    the motors by itself when commands stop arriving (see wave_rover_motor_driver repo)
+             *  - an explicit stop here would override the web UI, which is the backup control
+             *    path for exactly this case (RPi/controller not sending) */
             int64_t silence_ms = (esp_timer_get_time() - last_rx_time_us) / 1000;
-            if (silence_ms > UART_SILENCE_STOP_MS)
+            if (mode == DIRECT_MOTOR_CONTROL && silence_ms > UART_SILENCE_STOP_MS)
             {
                 motor_set_speed(0, 0);  // Stop motors
             }
@@ -730,8 +774,13 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
         /* Check if joystick is centered (both axes in deadzone) */
         if (forward_pwm == 0 && turn_pwm == 0)
         {
-            /* Stop motors immediately when joystick is released */
-            motor_set_speed(0, 0);
+            /* Joystick released. In DIRECT mode stop the motors here. In ESP-NOW mode send
+             * nothing: the motor controller stops by itself when commands stop arriving, and not sending
+             * keeps the centred stick from overriding commands coming from the web UI. */
+            if (mode == DIRECT_MOTOR_CONTROL)
+            {
+                motor_set_speed(0, 0);
+            }
         }
         else
         {
@@ -746,27 +795,9 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
             if (left_motor_pwm < -LEDC_DUTY_MAX) left_motor_pwm = -LEDC_DUTY_MAX;
             if (right_motor_pwm > LEDC_DUTY_MAX) right_motor_pwm = LEDC_DUTY_MAX;
             if (right_motor_pwm < -LEDC_DUTY_MAX) right_motor_pwm = -LEDC_DUTY_MAX;
-            
 
-            if(mode == DIRECT_MOTOR_CONTROL)
-            {
-                /* Apply motor speeds directly */
-                motor_set_speed(left_motor_pwm, right_motor_pwm);
-            }
-            else if(mode == ESP_NOW_MOTOR_CONTROLLER)
-            {
-                /* Send motor speeds via ESP-NOW to motor controller */
-                char motor_cmd[32];
-                snprintf(motor_cmd, sizeof(motor_cmd), "L:%d|R:%d", left_motor_pwm, right_motor_pwm);
-                
-                esp_err_t send_err = esp_now_comm_send(motor_controller_mac, (uint8_t*)motor_cmd, strlen(motor_cmd));
-                if (send_err != ESP_OK)
-                {
-                    char error_buffer[64];
-                    snprintf(error_buffer, sizeof(error_buffer), "Failed to send motor command: %s", esp_err_to_name(send_err));
-                    web_server_print(error_buffer);
-                }
-            }
+            /* Apply directly (DIRECT mode) or send to the motor controller (ESP-NOW mode) */
+            rover_apply_speed(left_motor_pwm, right_motor_pwm);
         }
 
         /* === ROARM-M3 CONTROL === */
@@ -1007,7 +1038,49 @@ static void roarm_check_timeout(void)
     }
 }
 
-static esp_err_t motor_set_speed(int left_motors_pwm, int right_motors_pwm) 
+static esp_err_t rover_apply_speed(int left_pwm, int right_pwm)
+{
+    /* Clamp to the valid range for both backends */
+    if (left_pwm > LEDC_DUTY_MAX) left_pwm = LEDC_DUTY_MAX;
+    if (left_pwm < -LEDC_DUTY_MAX) left_pwm = -LEDC_DUTY_MAX;
+    if (right_pwm > LEDC_DUTY_MAX) right_pwm = LEDC_DUTY_MAX;
+    if (right_pwm < -LEDC_DUTY_MAX) right_pwm = -LEDC_DUTY_MAX;
+
+    if (active_mode == DIRECT_MOTOR_CONTROL)
+    {
+        return motor_set_speed(left_pwm, right_pwm);
+    }
+    else // ESP_NOW_MOTOR_CONTROLLER
+    {
+        /* ESP_NOW_MOTOR_CONTROLLER: send "L:<left>|R:<right>" to the motor controller ESP32 */
+        char motor_cmd[32];
+        snprintf(motor_cmd, sizeof(motor_cmd), "L:%d|R:%d", left_pwm, right_pwm);
+
+        esp_err_t send_err = esp_now_comm_send(motor_controller_mac, (uint8_t*)motor_cmd, strlen(motor_cmd));
+        if (send_err != ESP_OK)
+        {
+            char error_buffer[64];
+            snprintf(error_buffer, sizeof(error_buffer), "Failed to send motor command: %s", esp_err_to_name(send_err));
+            web_server_print(error_buffer);
+        }
+        return send_err;
+    }
+}
+
+static void log_drive_state(const char *message)
+{
+    static const char *last_message = NULL;
+
+    /* Callers pass string literals, but compare contents to be safe */
+    if (last_message == NULL || strcmp(last_message, message) != 0)
+    {
+        ESP_LOGI(TAG, "%s", message);
+        web_server_print(message);
+        last_message = message;
+    }
+}
+
+static esp_err_t motor_set_speed(int left_motors_pwm, int right_motors_pwm)
 {
     /* Clamping the PWM values to the range of -LEDC_DUTY_MAX (max reverse) to LEDC_DUTY_MAX (max forward) */
     if (left_motors_pwm > LEDC_DUTY_MAX) left_motors_pwm = LEDC_DUTY_MAX;

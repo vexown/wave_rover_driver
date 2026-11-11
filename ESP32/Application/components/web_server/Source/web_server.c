@@ -193,6 +193,7 @@ static char web_server_print_buffer[WEBSERVER_PRINT_MAX_LEN] = "Initializing..."
 
 /* Sequence Number Handling */
 static uint32_t lastProcessedSequenceNumber = 0; // Track the last processed sequence number
+static char lastSessionId[17] = "";              // Session id of the page that sent the last command
 static SemaphoreHandle_t sequenceMutex = NULL; // Mutex to protect sequence number access
 
 /* WebSocket client tracking */
@@ -593,6 +594,7 @@ static esp_err_t control_get_handler(httpd_req_t *req)
     char dir[10] = {0};             // Buffer for direction parameter
     char seq_str[12] = {0};         // Buffer for sequence number string (large enough for uint32_t)
     uint32_t receivedSeq = 0;       // Received sequence number
+    char sid[17] = {0};             // Session id (random per page load), empty if not sent
     bool process_command = false;   // Flag to decide if motor command should be executed
 
     /* Get the length of the URL query string */
@@ -627,6 +629,9 @@ static esp_err_t control_get_handler(httpd_req_t *req)
                  * because we need to keep track of the sequence number for future commands. */
             }
 
+            /* Session id: each page load picks a new random one, and its sequence numbers start again from 1 */
+            (void)httpd_query_key_value(buf, "sid", sid, sizeof(sid));
+
             /* Parse the query string to extract the 'seq' parameter value */
             if (httpd_query_key_value(buf, "seq", seq_str, sizeof(seq_str)) == ESP_OK)
             {
@@ -648,7 +653,15 @@ static esp_err_t control_get_handler(httpd_req_t *req)
                     /* Critical Section: Check if the received sequence number is greater than the last processed one */
                     if (xSemaphoreTake(sequenceMutex, portMAX_DELAY) == pdTRUE)
                     {
-                        if (receivedSeq > lastProcessedSequenceNumber)
+                        if (strcmp(sid, lastSessionId) != 0)
+                        {
+                            /* New page (reloaded/reopened): its counter restarted, so start tracking from this command */
+                            ESP_LOGI(TAG, "New control session '%s' (Seq %lu)", sid, receivedSeq);
+                            strlcpy(lastSessionId, sid, sizeof(lastSessionId));
+                            lastProcessedSequenceNumber = receivedSeq;
+                            process_command = true;
+                        }
+                        else if (receivedSeq > lastProcessedSequenceNumber)
                         {
                             ESP_LOGD(TAG, "Processing Seq %lu (Last was %lu)", receivedSeq, lastProcessedSequenceNumber);
                             lastProcessedSequenceNumber = receivedSeq;
