@@ -1,6 +1,8 @@
 # WAVE ROVER driver
 WAVE ROVER driver project, is based on the [ugv_base_general](https://github.com/waveshareteam/ugv_base_general) repository by waveshareteam.
 
+For an overview of how the firmware is structured (components, tasks, data flows, protocols) see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 # WHAT IS THE WAVE ROVER?
 In short, Wave Rover is a Mobile Robot. It runs on 4 wheel drive, features both lower level board (ESP32) for fundemental rover control as well as higher level upper board (e.g Raspberry Pi) for things like cameras, AI processing and stuff like that. It runs on some LiPo cells with BMS and charging control board "UPS Module"(also from Waveshare). Great thing about this platform is that everything is open source, you can modify it as much as you want.
 
