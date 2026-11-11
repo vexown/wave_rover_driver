@@ -123,6 +123,7 @@
 #define XBOX_MAX_AXIS_VALUE         (32767)     // Maximum axis value from Xbox controller
 #define XBOX_TRIGGER_MAX_VALUE      (255)       // Maximum trigger value from Xbox controller (0-255)
 #define UART_RX_TIMEOUT_MS          (100)       // Timeout for UART receive
+#define UART_SILENCE_STOP_MS        (500)       // Stop motors after this long without UART data
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
@@ -670,8 +671,8 @@ static esp_err_t esp_now_motor_controller_init(void)
 static void motor_task(void *pvParameters) 
 {
     char rx_buffer[512];  // Buffer for UART data
-    uint32_t no_data_counter = 0;  // Counter for UART timeout detection
- 
+    int64_t last_rx_time_us = esp_timer_get_time();  // Time of the last received UART data
+
     motor_control_mode_t mode = (motor_control_mode_t)pvParameters;  // Cast back to the enum type
 
     ESP_LOGI(TAG, "Motor control task started - waiting for Xbox controller input");
@@ -683,8 +684,8 @@ static void motor_task(void *pvParameters)
         
         if (rx_len > 0)
         {
-            /* Reset timeout counter when data is received */
-            no_data_counter = 0;
+            /* Remember when data last arrived (for the UART silence stop below) */
+            last_rx_time_us = esp_timer_get_time();
             
             /* Null-terminate the received data */
             rx_buffer[rx_len] = '\0';
@@ -693,19 +694,11 @@ static void motor_task(void *pvParameters)
         }
         else
         {
-            /* No data received - increment timeout counter */
-            no_data_counter++;
-            
-            /* Safety: Stop motors if no UART data for 500ms (50 * 10ms) */
-            if (no_data_counter > 50)
+            /* Safety: stop the motors if no UART data has arrived for UART_SILENCE_STOP_MS (500 ms). */
+            int64_t silence_ms = (esp_timer_get_time() - last_rx_time_us) / 1000;
+            if (silence_ms > UART_SILENCE_STOP_MS)
             {
                 motor_set_speed(0, 0);  // Stop motors
-                
-                /* Cap the counter to prevent overflow */
-                if (no_data_counter > 1000)
-                {
-                    no_data_counter = 51;  // Keep it above threshold
-                }
             }
         }
         

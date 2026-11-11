@@ -291,7 +291,7 @@ the RPi side has to separate log lines from its own traffic.
 | Trigger | What happens | Where |
 |---------|--------------|-------|
 | Joystick back in deadzone | `motor_set_speed(0, 0)` | `process_xbox_input` |
-| No UART data for 50 consecutive reads | `motor_set_speed(0, 0)` | `motor_task` |
+| No UART data for `UART_SILENCE_STOP_MS` (500 ms) | `motor_set_speed(0, 0)` | `motor_task` |
 | WiFi disconnect | `motor_stop()` via `on_wifi_disconnect` callback | `app_main.c` |
 | B button | Stop all 6 arm axes | `process_xbox_input` |
 | Joint released | Stop that joint | `process_xbox_input` |
