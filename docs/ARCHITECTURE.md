@@ -306,7 +306,7 @@ two control paths don't fight. If both are active, the last packet wins.
 |-----------|-------------|----------|
 | `LOG_TO_RPI(...)` | UART0 → RPi | Boot log, IMU data, GPS, ESP-NOW events |
 | `web_server_print(...)` | RAM buffer served at `/print` | Status/errors from most components |
-| `ESP_LOGx(TAG, ...)` | ESP-IDF console (also UART0) | Low-level debug |
+| `ESP_LOGx(TAG, ...)` | ESP-IDF console on **UART1** (TX GPIO17 / RX GPIO16, set in `sdkconfig`), not visible through `Monitor.sh` | Low-level debug |
 | `oled_write_string` | OLED, 4 lines | Version, WiFi status, IP, OTA progress |
 
 UART0 carries **both** the control frames coming in and the logs going out, so
