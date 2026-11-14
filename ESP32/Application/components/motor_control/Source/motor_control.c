@@ -121,9 +121,12 @@
 /* Xbox Controller Configuration */
 #define XBOX_DEADZONE               (5000)      // Deadzone for joystick (out of ±32767)
 #define XBOX_MAX_AXIS_VALUE         (32767)     // Maximum axis value from Xbox controller
-#define XBOX_TRIGGER_MAX_VALUE      (255)       // Maximum trigger value from Xbox controller (0-255)
+#define XBOX_TRIGGER_MAX_VALUE      (32767)     // Trigger fully pressed. Triggers are axes: -32767 released, 0 half pressed, 32767 fully pressed
 #define UART_RX_TIMEOUT_MS          (100)       // Timeout for UART receive
 #define UART_SILENCE_STOP_MS        (500)       // Stop motors (DIRECT mode) after this long without UART data
+
+/* RoArm-M3 Configuration */
+#define ROARM_GRIPPER_MAX_SPEED     (20)        // T:123 "spd" for the gripper at full trigger
 
 /*******************************************************************************/
 /*                                DATA TYPES                                   */
@@ -157,11 +160,6 @@ typedef struct {
 /*******************************************************************************/
 /*    for variables defined in this .c file, to be used in other .c files.     */
 /*******************************************************************************/
-
-/* RoArm watchdog timer variables */
-static uint64_t last_roarm_command_time = 0;
-static const uint32_t ROARM_COMMAND_TIMEOUT_MS = 500;
-static bool roarm_control_active = false;
 
 /*******************************************************************************/
 /*                     STATIC FUNCTION DECLARATIONS                            */
@@ -237,15 +235,16 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
  * @brief Send constant control command to RoArm for a single axis.
  *
  * @param axis Joint ID (1=base, 2=shoulder, 3=elbow, 4=wrist, 5=roll, 6=eoat)
+ * A moving command (cmd 1 or 2) has to be re-sent for as long as the control is held:
+ * the RoArm stops an axis by itself when its moving command stops arriving (see the
+ * wave_rover_RoArmM3 repo). process_xbox_input re-sends it on every UART frame.
+ *
+ * @param axis Joint ID (1=base, 2=shoulder, 3=elbow, 4=wrist, 5=roll, 6=eoat)
  * @param cmd Command (0=stop, 1=decrease, 2=increase)
- * @param speed Speed value (0-100)
+ * @param speed Speed value. A moving command needs speed >= 1: the RoArm firmware
+ *              treats 0 as "no movement" (see the wave_rover_RoArmM3 repo).
  */
 static void roarm_send_constant_ctrl(uint8_t axis, uint8_t cmd, uint8_t speed);
-
-/**
- * @brief Check RoArm command timeout and send stop if needed.
- */
-static void roarm_check_timeout(void);
 
 /**
  * @brief Set the speed and direction for both motors.
@@ -756,9 +755,6 @@ static void motor_task(void *pvParameters)
             }
         }
         
-        /* Check RoArm command timeout */
-        roarm_check_timeout();
-        
         /* Small delay to prevent task hogging CPU */
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -962,11 +958,18 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
             float lt_normalized = (float)controller.lt / XBOX_TRIGGER_MAX_VALUE;
             float rt_normalized = (float)controller.rt / XBOX_TRIGGER_MAX_VALUE;
             const float TRIGGER_THRESHOLD = 0.1f;
-            
+
+            /* Only the second half of the trigger travel is used: 0.0 at half pressed, 1.0 at
+             * fully pressed. A value of 0 then means "not pressed", which is also what the RPi
+             * sends for a disconnected controller and what a missing field parses to.
+             *
+             * Gripper speed: 1 up to ROARM_GRIPPER_MAX_SPEED at full trigger.
+             * Never 0: the RoArm firmware treats spd 0 as "no movement". */
+
             /* LT: Close gripper (increase angle) */
             if (lt_normalized > TRIGGER_THRESHOLD)
             {
-                uint8_t speed = (uint8_t)(lt_normalized);  // Reduced speed for smoother control
+                uint8_t speed = 1 + (uint8_t)(lt_normalized * (ROARM_GRIPPER_MAX_SPEED - 1));
                 roarm_send_constant_ctrl(6, 2, speed);  // EOAT_JOINT increase (close)
                 prev_lt_active = 1;
             }
@@ -979,7 +982,7 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
             /* RT: Open gripper (decrease angle) */
             if (rt_normalized > TRIGGER_THRESHOLD)
             {
-                uint8_t speed = (uint8_t)(rt_normalized);  // Reduced speed for smoother control
+                uint8_t speed = 1 + (uint8_t)(rt_normalized * (ROARM_GRIPPER_MAX_SPEED - 1));
                 roarm_send_constant_ctrl(6, 1, speed);  // EOAT_JOINT decrease (open)
                 prev_rt_active = 1;
             }
@@ -1024,28 +1027,8 @@ static void roarm_send_constant_ctrl(uint8_t axis, uint8_t cmd, uint8_t speed)
     snprintf(json, sizeof(json),
              "{\"T\":123,\"m\":0,\"axis\":%d,\"cmd\":%d,\"spd\":%d}",
              axis, cmd, speed);
-    
-    roarm_send_json_cmd(roarm_mac, json);
-}
 
-static void roarm_check_timeout(void)
-{
-    if (roarm_control_active)
-    {
-        uint64_t current_time = esp_timer_get_time() / 1000;  // Convert to milliseconds
-        
-        if ((current_time - last_roarm_command_time) > ROARM_COMMAND_TIMEOUT_MS)
-        {
-            /* Timeout exceeded - send emergency stop to all axes */
-            ESP_LOGW(TAG, "RoArm command timeout - sending stop commands");
-            for (uint8_t axis = 1; axis <= 6; axis++)
-            {
-                roarm_send_constant_ctrl(axis, 0, 0);
-                vTaskDelay(pdMS_TO_TICKS(5));  // Small delay between commands
-            }
-            roarm_control_active = false;
-        }
-    }
+    roarm_send_json_cmd(roarm_mac, json);
 }
 
 static esp_err_t rover_apply_speed(int left_pwm, int right_pwm)

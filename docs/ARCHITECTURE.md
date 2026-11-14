@@ -201,11 +201,16 @@ mapping (determined experimentally) is documented in the comment on
 | D-pad up/down | Joint 3 elbow |
 | D-pad left/right | Joint 4 wrist pitch |
 | LB / RB | Joint 5 wrist roll |
-| LT / RT | Joint 6 gripper close / open. **Ignored while any other joint input is active** |
+| LT / RT | Joint 6 gripper close / open. Triggers are axes (−32767 released … 32767 pressed); only the second half of the travel is used, giving `spd` 1 … `ROARM_GRIPPER_MAX_SPEED` (20). **Ignored while any other joint input is active** |
 | A (edge) | Arm to init pose (`{"T":100}`), then blocks the task for 3 s |
 | B (edge) | Stop all 6 arm axes |
 
-Every joint sends a "stop" (`cmd:0`) on the release edge.
+Every joint sends a "stop" (`cmd:0`) on the release edge. A held joint
+re-sends its moving command on every UART frame (the RPi sends one every
+10 ms). The re-sending is required: like the motor controller, the RoArm
+stops an axis by itself when its moving command stops arriving, so this
+firmware has no arm timeout of its own. How the arm does that, and how
+quickly, is defined in the `wave_rover_RoArmM3` repo.
 
 **Motor modes** (`motor_control_mode_t`):
 
@@ -236,7 +241,9 @@ which picks the backend from the mode stored by `motor_init()`. The public
 | 104 | Move to XYZ | `roarm_move_xyz` |
 | 106 | Gripper angle | `roarm_control_gripper` |
 | 114 | LED brightness | `roarm_control_light` |
-| 123 | Constant-speed joint move (axis, cmd 0=stop/1=−/2=+, spd) | `roarm_send_constant_ctrl` (static, in `motor_control.c`) |
+| 123 | Constant-speed joint move (axis, cmd 0=stop/1=−/2=+, spd ≥ 1; 0 = no movement) | `roarm_send_constant_ctrl` (static, in `motor_control.c`) |
+
+How the arm interprets `spd` is defined in the `wave_rover_RoArmM3` repo.
 
 `roarm_send_json_cmd` waits 20 ms before every send, so each arm command adds
 20 ms to the `motor_task` loop.
@@ -327,9 +334,11 @@ For `ESP_NOW_MOTOR_CONTROLLER` mode (the one in use):
 | Browser/WiFi dies mid-press | Repeats stop; motor controller stops on its own | `HTML_page.c` |
 | B button | Stop all 6 arm axes | `process_xbox_input` |
 | Joint released | Stop that joint | `process_xbox_input` |
+| No UART data / this board or the radio link down while a joint moves | Sends nothing; the RoArm stops the joint on its own | – |
 
 "Stops on its own" is the motor controller's behaviour when packets stop
 arriving. See the `wave_rover_motor_driver` repo for how that's implemented.
+The RoArm does the same per joint; see the `wave_rover_RoArmM3` repo.
 
 The Xbox path deliberately does **not** send a stop when the stick is centred
 or the UART goes quiet. That would override the web UI, which is the backup
