@@ -687,20 +687,30 @@ static esp_err_t direct_motor_control_init(void)
 
 static esp_err_t esp_now_motor_controller_init(void)
 {
-    /* Add the motor controller ESP32 as an ESP-NOW peer to be able to send commands to it */
+    char peer_msg[64];
+
+    /* Add the motor controller ESP32 as an ESP-NOW peer to be able to send commands to it.
+     * Without it the rover can't drive, so a failure aborts motor_init. */
     esp_err_t err = esp_now_comm_add_peer(motor_controller_mac);
-    /* Add the RoArm-M3's ESP32 as an ESP-NOW peer too */
+    if (err != ESP_OK)
+    {
+        snprintf(peer_msg, sizeof(peer_msg), "Failed to add motor controller peer: %s", esp_err_to_name(err));
+        web_server_print(peer_msg);
+        return err;
+    }
+    web_server_print("Motor controller peer added successfully");
+
+    /* Add the RoArm-M3's ESP32 as an ESP-NOW peer too. A failure here is reported but
+     * not fatal: the rover can still drive without the arm. */
     err = esp_now_comm_add_peer(roarm_mac);
     if (err != ESP_OK)
     {
-        char peer_error_buffer[64];
-        snprintf(peer_error_buffer, sizeof(peer_error_buffer), "Failed to add motor controller peer: %s", esp_err_to_name(err));
-        web_server_print(peer_error_buffer);
-        return err;
+        snprintf(peer_msg, sizeof(peer_msg), "Failed to add RoArm peer: %s", esp_err_to_name(err));
+        web_server_print(peer_msg);
     }
     else
     {
-        web_server_print("Motor controller peer added successfully");
+        web_server_print("RoArm peer added successfully");
     }
 
     return ESP_OK;

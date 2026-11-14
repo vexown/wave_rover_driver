@@ -133,7 +133,7 @@ failure** (no step aborts boot).
 | 6 | `wifi_manager_init()` | **Blocks** until connected or retries exhausted |
 | 7 | `esp_now_comm_init()` | Needs the WiFi radio running (not necessarily connected) |
 | 8 | `web_server_init()` | Starts httpd and registers URIs |
-| 9 | `motor_init(ESP_NOW_MOTOR_CONTROLLER)` | Adds peers, starts `motor_task` |
+| 9 | `motor_init(ESP_NOW_MOTOR_CONTROLLER)` | Adds peers (motor controller: fatal on failure; RoArm: reported only), starts `motor_task` |
 | 10 | `NaviLogging_init()` | Adds GPS peer, starts its task |
 | 11 | `imu_init()` | Probes sensors, starts both IMU read tasks |
 | 12 | `print_system_info()` | Chip/flash/MAC to UART, OLED and web log |
