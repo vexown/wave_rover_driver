@@ -339,7 +339,7 @@ since boot". It is heard from in one of two ways:
 | Raspberry Pi | A valid Xbox frame arrived over UART. So it shows offline when no controller is connected to the RPi, because the RPi sends no frames then | `process_xbox_input` → `robot_status_mark_seen` |
 | GPS / navigation | Coordinates arrived over ESP-NOW | `on_data_recv_callback` → `robot_status_mark_seen` |
 | RoArm-M3 | Heartbeat over ESP-NOW (see the wave_rover_RoArmM3 repo for the sending side) | `on_data_recv_callback` → `robot_status_handle_heartbeat` |
-| Motor controller | Heartbeat over ESP-NOW (not sent by that firmware yet, so it shows "not seen since boot") | `on_data_recv_callback` → `robot_status_handle_heartbeat` |
+| Motor controller | Heartbeat over ESP-NOW (see the wave_rover_motor_driver repo for the sending side) | `on_data_recv_callback` → `robot_status_handle_heartbeat` |
 
 **Heartbeat** (`robot_status_msg.h`): a 24-byte packed struct sent once per
 second, starting with the bytes `'R','S'` and a protocol version. It carries

@@ -72,8 +72,7 @@ static const flag_name_t arm_flag_names[] =
 
 static const flag_name_t motor_flag_names[] =
 {
-    { ROBOT_MOTOR_FLAG_MOVING,        "moving" },
-    { ROBOT_MOTOR_FLAG_WATCHDOG_STOP, "watchdog stop occurred" },
+    { ROBOT_MOTOR_FLAG_MOVING, "moving" },
     { 0, NULL }
 };
 

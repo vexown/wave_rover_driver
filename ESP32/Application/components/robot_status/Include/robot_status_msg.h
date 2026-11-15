@@ -36,7 +36,6 @@ typedef enum
 #define ROBOT_ARM_FLAG_TIMEOUT_STOP         (1u << 3)   /* An axis was stopped by the command timeout since boot */
 
 #define ROBOT_MOTOR_FLAG_MOVING             (1u << 0)   /* Motors are being driven */
-#define ROBOT_MOTOR_FLAG_WATCHDOG_STOP      (1u << 1)   /* Motors were stopped by the command watchdog since boot */
 
 typedef struct __attribute__((packed))
 {
