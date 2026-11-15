@@ -196,6 +196,11 @@ Parsing is `strstr` per key, and a missing key reads as 0. The axis/button
 mapping (determined experimentally) is documented in the comment on
 `parse_xbox_data()`.
 
+The RPi sends these frames only while a controller is in use. On the same UART
+it also sends a **status line** once per second, always (see 5.6). `motor_task`
+hands each read to `robot_status_handle_pi_line()` first, and skips the frame
+parsing when the read held a status line and no frame.
+
 **Controller mapping** (`process_xbox_input()`):
 
 | Input | Action |
@@ -331,12 +336,12 @@ pushes it over the WebSocket once per second (`"type":"status"`).
 
 A controller is **online** when it was heard from within
 `ROBOT_STATUS_OFFLINE_AFTER_MS` (**3 s**), otherwise offline, or "not seen
-since boot". It is heard from in one of two ways:
+since boot". How each one is heard from:
 
 | Controller | How it reports | Where |
 |------------|----------------|-------|
 | This board | Always online (it is the one reporting); shows `FW_VERSION`, uptime, WiFi signal | `robot_status_task` |
-| Raspberry Pi | A valid Xbox frame arrived over UART. So it shows offline when no controller is connected to the RPi, because the RPi sends no frames then | `process_xbox_input` → `robot_status_mark_seen` |
+| Raspberry Pi | Status line over UART once per second, sent whether or not a controller is in use (see the wave_rover_pi repo for the sending side). An Xbox frame also counts | `motor_task` → `robot_status_handle_pi_line`, `process_xbox_input` → `robot_status_mark_seen` |
 | GPS / navigation | Coordinates arrived over ESP-NOW | `on_data_recv_callback` → `robot_status_mark_seen` |
 | RoArm-M3 | Heartbeat over ESP-NOW (see the wave_rover_RoArmM3 repo for the sending side) | `on_data_recv_callback` → `robot_status_handle_heartbeat` |
 | Motor controller | Heartbeat over ESP-NOW (see the wave_rover_motor_driver repo for the sending side) | `on_data_recv_callback` → `robot_status_handle_heartbeat` |
@@ -349,6 +354,14 @@ not log it. A packet counts as a heartbeat only when it has both the exact
 length and the two leading bytes; anything else goes on to the MAC routing.
 The header is shared: every repo that sends heartbeats keeps an
 identical copy, and a layout change needs a new `ROBOT_STATUS_PROTO_VERSION`.
+
+**RPi status line** (`robot_status.h`): one text line,
+`$PI,<uptime_s>,<flags>*<checksum>\n`. The checksum is the XOR of all
+characters between `$` and `*`, as two hex digits; a line that is cut off or
+fails the checksum is ignored. The flags (`ROBOT_PI_FLAG_`) say whether a
+controller is active and which of the RPi's services run; the page names the
+ones that are not running. The flag values are defined here and in the RPi's
+UART bridge and must match.
 
 To add a controller: add it to `robot_node_t` and to `nodes[]` in
 `robot_status.c`, plus its flag names if it sends heartbeats.

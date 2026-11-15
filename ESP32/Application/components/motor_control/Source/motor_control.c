@@ -737,8 +737,18 @@ static void motor_task(void *pvParameters)
             
             /* Null-terminate the received data */
             rx_buffer[rx_len] = '\0';
-            
-            process_xbox_input(rx_buffer, mode);
+
+            /* The RPi sends two kinds of lines: its status line once per second (STATUS panel)
+             * and Xbox frames while a controller is in use. A read can hold both, or a status
+             * line only when no controller is in use, and then there is nothing to parse as a frame.
+             * A status line that is cut in two by the end of a read is dropped; the next one
+             * comes 1 s later and the RPi only counts as offline after 3 s. */
+            bool is_pi_status_found = robot_status_handle_pi_line(rx_buffer);
+
+            if (!is_pi_status_found || strstr(rx_buffer, "S|") != NULL)
+            {
+                process_xbox_input(rx_buffer, mode);
+            }
         }
         else
         {
@@ -770,7 +780,7 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
 
     if(parsing_status == ESP_OK)
     {
-        /* A valid frame means the RPi and its controller bridge are alive (STATUS panel) */
+        /* A frame means the RPi and its UART bridge are alive (STATUS panel), also when no status line got through */
         robot_status_mark_seen(ROBOT_NODE_PI);
 
         /* === ROVER MOTOR CONTROL (Left Stick) === */

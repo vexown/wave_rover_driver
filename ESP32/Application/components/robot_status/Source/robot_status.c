@@ -58,7 +58,7 @@ static robot_node_entry_t nodes[ROBOT_NODE_COUNT] =
     [ROBOT_NODE_ARM]    = { .name = "RoArm-M3" },
     [ROBOT_NODE_MOTOR]  = { .name = "Motor controller" },
     [ROBOT_NODE_GPS]    = { .name = "GPS / navigation", .seen_info = "coordinates received over ESP-NOW" },
-    [ROBOT_NODE_PI]     = { .name = "Raspberry Pi",     .seen_info = "Xbox frames received over UART" },
+    [ROBOT_NODE_PI]     = { .name = "Raspberry Pi",     .seen_info = "Xbox frames received over UART, no status line" },
 };
 
 static const flag_name_t arm_flag_names[] =
@@ -76,6 +76,16 @@ static const flag_name_t motor_flag_names[] =
     { 0, NULL }
 };
 
+/* Services of the Raspberry Pi, named when they are NOT running */
+static const flag_name_t pi_service_names[] =
+{
+    { ROBOT_PI_FLAG_XBOXDRV,      "xboxdrv" },
+    { ROBOT_PI_FLAG_SERIAL_NODES, "serial nodes" },
+    { ROBOT_PI_FLAG_IMU_PARSER,   "IMU parser" },
+    { ROBOT_PI_FLAG_GPS_PARSER,   "GPS parser" },
+    { 0, NULL }
+};
+
 /* Protects nodes[]: written from the WiFi task (ESP-NOW receive) and motor_task, read by the status task */
 static portMUX_TYPE nodes_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -87,6 +97,7 @@ static const char *driver_fw = "?";
 static void robot_status_task(void *pvParameters);
 static int build_status_json(char *json, size_t json_size);
 static void build_heartbeat_info(const robot_status_msg_t *heartbeat, char *info, size_t info_size);
+static void build_pi_info(uint16_t flags, char *info, size_t info_size);
 static void copy_json_safe(char *dst, size_t dst_size, const char *src, size_t src_max_len);
 
 /*******************************************************************************/
@@ -154,6 +165,50 @@ bool robot_status_handle_heartbeat(const uint8_t *data, int len)
     nodes[heartbeat.node_id].last_seen_us = esp_timer_get_time();
     nodes[heartbeat.node_id].has_heartbeat = true;
     nodes[heartbeat.node_id].heartbeat = heartbeat;
+    portEXIT_CRITICAL(&nodes_lock);
+
+    return true;
+}
+
+bool robot_status_handle_pi_line(const char *text)
+{
+    if (text == NULL) return false;
+
+    const char *line = strstr(text, "$PI,");
+    if (line == NULL) return false;
+
+    /* %n gives the number of characters read up to there. It is only set when everything before
+     * it matched, and the line feed after it shows that the checksum was not cut off. */
+    unsigned long uptime_s = 0;
+    unsigned int flags = 0;
+    unsigned int received_checksum = 0;
+    int line_len = 0;
+    if (sscanf(line, "$PI,%lu,%u*%2x%n", &uptime_s, &flags, &received_checksum, &line_len) != 3 || line[line_len] != '\n') return false;
+
+    /* The checksum covers everything between '$' and '*' */
+    uint8_t checksum = 0;
+    for (const char *c = line + 1; *c != '*'; c++)
+    {
+        checksum ^= (uint8_t)*c;
+    }
+    if (checksum != received_checksum) return false;
+
+    /* Kept as a heartbeat so the Pi's row is filled in the same way as the ESP-NOW nodes' rows.
+     * The Pi reports no firmware version, so that stays empty. */
+    robot_status_msg_t heartbeat =
+    {
+        .magic         = { ROBOT_STATUS_MAGIC_0, ROBOT_STATUS_MAGIC_1 },
+        .proto_version = ROBOT_STATUS_PROTO_VERSION,
+        .node_id       = ROBOT_NODE_PI,
+        .uptime_s      = (uint32_t)uptime_s,
+        .flags         = (uint16_t)flags,
+    };
+
+    portENTER_CRITICAL(&nodes_lock);
+    nodes[ROBOT_NODE_PI].seen = true;
+    nodes[ROBOT_NODE_PI].last_seen_us = esp_timer_get_time();
+    nodes[ROBOT_NODE_PI].has_heartbeat = true;
+    nodes[ROBOT_NODE_PI].heartbeat = heartbeat;
     portEXIT_CRITICAL(&nodes_lock);
 
     return true;
@@ -268,6 +323,12 @@ static int build_status_json(char *json, size_t json_size)
  */
 static void build_heartbeat_info(const robot_status_msg_t *heartbeat, char *info, size_t info_size)
 {
+    if (heartbeat->node_id == ROBOT_NODE_PI)
+    {
+        build_pi_info(heartbeat->flags, info, info_size);
+        return;
+    }
+
     const flag_name_t *names = NULL;
     if (heartbeat->node_id == ROBOT_NODE_ARM)   names = arm_flag_names;
     if (heartbeat->node_id == ROBOT_NODE_MOTOR) names = motor_flag_names;
@@ -287,6 +348,29 @@ static void build_heartbeat_info(const robot_status_msg_t *heartbeat, char *info
     {
         /* Result not needed: a truncated text is acceptable here, info is always terminated */
         (void)snprintf(info + used, info_size - used, "%slast error %u", (used == 0) ? "" : ", ", heartbeat->last_error);
+    }
+}
+
+/**
+ * @brief Turn the flags of the Raspberry Pi's status line into text for the web page.
+ *
+ * Says whether a controller is active and names the services that are not running, e.g.
+ * "no controller, not running: IMU parser, GPS parser". A missing service is the thing
+ * to notice, so those are named and not the running ones.
+ */
+static void build_pi_info(uint16_t flags, char *info, size_t info_size)
+{
+    int used = snprintf(info, info_size, "%s",
+                        (flags & ROBOT_PI_FLAG_CONTROLLER_ACTIVE) ? "controller active" : "no controller");
+    bool first = true;
+
+    for (int i = 0; pi_service_names[i].name != NULL; i++)
+    {
+        if (!(flags & pi_service_names[i].bit) && used < (int)info_size)
+        {
+            used += snprintf(info + used, info_size - used, "%s%s", first ? ", not running: " : ", ", pi_service_names[i].name);
+            first = false;
+        }
     }
 }
 
