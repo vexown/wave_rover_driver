@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "string.h"
 #include "NaviLogging.h"
+#include "robot_status.h"
 #include "Common.h"
 
 #define TAG "ESP_NOW_COMM_CALLBACK"
@@ -21,6 +22,10 @@ void on_data_send_callback(const uint8_t *mac_addr, esp_now_send_status_t status
 
 void on_data_recv_callback(const uint8_t *mac_addr, const uint8_t *data, int len)
 {
+    /* Heartbeats from the other controllers go to the STATUS panel. They are recognised by
+     * their length and first two bytes, whoever sent them, and are not logged: each node sends one per second. */
+    if (robot_status_handle_heartbeat(data, len)) return;
+
     LOG_TO_RPI("Received data from %02x:%02x:%02x:%02x:%02x:%02x, length: %d bytes", 
              mac_addr[0], mac_addr[1], mac_addr[2], 
              mac_addr[3], mac_addr[4], mac_addr[5], len);
@@ -30,6 +35,7 @@ void on_data_recv_callback(const uint8_t *mac_addr, const uint8_t *data, int len
     {
         /* Data from NaviLogging sender - pass to NaviLogging handler */
         LOG_TO_RPI("Data from NaviLogging sender, routing to NaviLogging_handle_received_coords");
+        robot_status_mark_seen(ROBOT_NODE_GPS);
         NaviLogging_handle_received_coords(mac_addr, data, len);
     }
     else

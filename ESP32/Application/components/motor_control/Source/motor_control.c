@@ -31,6 +31,7 @@
 #include "motor_control.h"
 #include "roarm_m3_motor_control.h"
 #include "web_server.h"
+#include "robot_status.h"
 #include "Common.h"
 #include "comms_uart.h"
 #include "esp_now_comm.h"
@@ -769,6 +770,9 @@ static void process_xbox_input(const char* rx_buffer, motor_control_mode_t mode)
 
     if(parsing_status == ESP_OK)
     {
+        /* A valid frame means the RPi and its controller bridge are alive (STATUS panel) */
+        robot_status_mark_seen(ROBOT_NODE_PI);
+
         /* === ROVER MOTOR CONTROL (Left Stick) === */
         /* LY controls forward/backward (inverted: negative = forward)
          * LX controls left/right turning (inverted: negative = right) */

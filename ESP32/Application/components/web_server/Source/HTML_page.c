@@ -291,6 +291,33 @@ const char *HTML_PAGE = R"rawliteral(
         height: calc(100% - 40px) !important;
     }
     
+    .status-table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+    }
+
+    .status-table th, .status-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(0, 188, 212, 0.2);
+    }
+
+    .status-table th {
+        color: var(--primary);
+        text-transform: uppercase;
+        font-size: 0.8rem;
+        letter-spacing: 1px;
+    }
+
+    .node-state {
+        font-weight: bold;
+        white-space: nowrap;
+    }
+
+    .node-state.online  { color: #4caf50; }
+    .node-state.offline { color: #f44336; }
+    .node-state.never   { color: #9e9e9e; }
+
     .connection-status {
         text-align: center;
         padding: 10px;
@@ -523,6 +550,19 @@ const char *HTML_PAGE = R"rawliteral(
 
     </div>
     
+    <!-- Status of all controllers of the robot -->
+    <div class="chart-container">
+        <div class="chart-title">Status</div>
+        <table class="status-table">
+            <thead>
+                <tr><th>Controller</th><th>State</th><th>Firmware</th><th>Uptime</th><th>Details</th></tr>
+            </thead>
+            <tbody id="status-rows">
+                <tr><td colspan="5">Waiting for data...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
     <!-- Live Orientation Panel -->
     <div class="chart-container">
         <div class="chart-title">Robot Orientation</div>
@@ -711,6 +751,37 @@ const char *HTML_PAGE = R"rawliteral(
             compassNeedle.style.transform = `translateX(-50%) rotate(${yaw}deg)`;
         }
         
+        // Seconds as "1h 02m 03s"
+        function formatUptime(seconds) {
+            if (seconds < 0) return '-';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            const pad = (n) => String(n).padStart(2, '0');
+            return h > 0 ? `${h}h ${pad(m)}m ${pad(s)}s` : `${m}m ${pad(s)}s`;
+        }
+
+        // STATUS panel: one row per controller, sent by the firmware once per second
+        function updateStatusPanel(nodes) {
+            const stateText = {
+                online: () => '● Online',
+                offline: (n) => `● Offline (last seen ${formatUptime(n.age)} ago)`,
+                never: () => '● Not seen since boot'
+            };
+            const tbody = document.getElementById('status-rows');
+            tbody.textContent = '';
+            nodes.forEach((n) => {
+                const row = tbody.insertRow();
+                row.insertCell().textContent = n.name;
+                const state = row.insertCell();
+                state.className = `node-state ${n.state}`;
+                state.textContent = stateText[n.state](n);
+                row.insertCell().textContent = n.fw || '-';
+                row.insertCell().textContent = formatUptime(n.uptime);
+                row.insertCell().textContent = n.info || '-';
+            });
+        }
+
         function initWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -734,6 +805,8 @@ const char *HTML_PAGE = R"rawliteral(
                     const data = JSON.parse(event.data);
                     if (data.type === 'imu_orientation') {
                         updateOrientationDisplay(data.roll, data.pitch, data.yaw);
+                    } else if (data.type === 'status') {
+                        updateStatusPanel(data.nodes);
                     } else if (data.type === 'imu') {
                         // Legacy support for raw IMU data (fallback)
                         console.log('Received legacy raw IMU data - orientation fusion not available');

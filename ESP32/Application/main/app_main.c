@@ -31,6 +31,7 @@
 #include "esp_now_comm.h"
 #include "esp_now_comm_callbacks.h"
 #include "wifi_manager.h"
+#include "robot_status.h"
 
 /*******************************************************************************/
 /*                                 MACROS                                      */
@@ -365,6 +366,18 @@ static void init_components(void)
     else
     {
         LOG_TO_RPI("Web Server Initialized.");
+    }
+
+    /******************************* Robot Status *******************************/
+    /* After the web server: it sends the status of all controllers to the web page */
+    esp_err_t status_err = robot_status_init(FW_VERSION);
+    if (status_err != ESP_OK)
+    {
+        LOG_TO_RPI("Robot Status initialization failed: %s", esp_err_to_name(status_err)); // Log the error but continue execution: only the STATUS panel is affected
+    }
+    else
+    {
+        LOG_TO_RPI("Robot Status Initialized.");
     }
 
     /******************************* Motor Control *******************************/

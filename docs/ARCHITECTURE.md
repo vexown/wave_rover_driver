@@ -80,6 +80,7 @@ lowercase `include/` and `src/`.
 | `esp_now_comm`   | Thin ESP-NOW wrapper (init, peers, send) + the receive router | `esp_now_comm.h`, `esp_now_comm_callbacks.h` | no (WiFi task callbacks) |
 | `web_server`     | HTTP server, browser UI, WebSocket broadcast, HTTPS OTA, in-RAM log buffer | `web_server.h` | httpd's own task |
 | `motor_control`  | Reads Xbox frames from UART, drives the rover (direct or via ESP-NOW) and the RoArm-M3 | `motor_control.h`, `roarm_m3_motor_control.h` | `motor_task` |
+| `robot_status`   | Tracks which controllers of the robot are alive (heartbeats over ESP-NOW, or their regular data arriving) and pushes the list to the web page's STATUS panel | `robot_status.h`, `robot_status_msg.h` | `robot_status` |
 | `NaviLogging`    | Receives GPS fixes over ESP-NOW, stores the latest, logs it | `NaviLogging.h` | `navi_coordinates_processing_task` |
 | `IMU`            | QMI8658 (accel + gyro) and AK09918 (magnetometer) drivers + Fusion AHRS → roll/pitch/yaw | `IMU.h` (only `imu_init`) | two read tasks |
 | `Fusion`         | Third-party AHRS library (x-io Technologies), vendored – see `source_repo.md` | `Fusion.h` | no |
@@ -93,13 +94,14 @@ ESP-IDF built-ins left out).
 flowchart TD
     main[main / app_main.c]
 
-    main --> motor_control & web_server & IMU & NaviLogging & esp_now_comm & wifi_manager & oled_display & i2c_manager & Common
+    main --> motor_control & web_server & IMU & NaviLogging & esp_now_comm & wifi_manager & oled_display & i2c_manager & robot_status & Common
 
-    motor_control --> web_server & esp_now_comm & comms_uart & Common
+    motor_control --> web_server & esp_now_comm & comms_uart & robot_status & Common
+    robot_status --> web_server
     web_server --> motor_control & oled_display & wifi_manager & Common
     IMU --> web_server & i2c_manager & Fusion & Common
     NaviLogging --> web_server & esp_now_comm & Common
-    esp_now_comm --> NaviLogging & Common
+    esp_now_comm --> NaviLogging & robot_status & Common
     oled_display --> i2c_manager
     Common --> comms_uart
 ```
@@ -133,6 +135,7 @@ failure** (no step aborts boot).
 | 6 | `wifi_manager_init()` | **Blocks** until connected or retries exhausted |
 | 7 | `esp_now_comm_init()` | Needs the WiFi radio running (not necessarily connected) |
 | 8 | `web_server_init()` | Starts httpd and registers URIs |
+| 8b | `robot_status_init(FW_VERSION)` | Needs the web server (pushes to its WebSocket) |
 | 9 | `motor_init(ESP_NOW_MOTOR_CONTROLLER)` | Adds peers (motor controller: fatal on failure; RoArm: reported only), starts `motor_task` |
 | 10 | `NaviLogging_init()` | Adds GPS peer, starts its task |
 | 11 | `imu_init()` | Probes sensors, starts both IMU read tasks |
@@ -155,6 +158,7 @@ bootloader roll back to the previous image.
 | `app_main` | ESP-IDF | 2 s | default main task |
 | `motor_task` | `motor_control.c` | UART read (100 ms timeout) + 20 ms delay | idle + 5 |
 | `navi_coordinates_processing_task` | `NaviLogging.c` | 1 s | idle + 2 |
+| `robot_status` | `robot_status.c` | 1 s | idle + 2 |
 | `accel_gyro_data_read` | `IMU.cpp` | 50 ms (`vTaskDelayUntil`) | idle + 1 |
 | `magnetometer_data_read` | `IMU.cpp` | 50 ms (`vTaskDelayUntil`) | idle + 1 |
 | httpd | `esp_http_server` | event-driven | ESP-IDF default |
@@ -262,8 +266,8 @@ otherwise. Sample period is 50 ms (`FUSION_SAMPLE_PERIOD`).
 
 ### 5.3 GPS (NaviLogging)
 
-ESP-NOW receive → `on_data_recv_callback()` in `esp_now_comm_callbacks.c` routes
-by sender MAC → `NaviLogging_handle_received_coords()` checks that the length
+ESP-NOW receive → `on_data_recv_callback()` in `esp_now_comm_callbacks.c` (after
+heartbeats have been filtered out, see 5.6) routes by sender MAC → `NaviLogging_handle_received_coords()` checks that the length
 equals `sizeof(navi_coordinates_type)` and copies it under a mutex with a
 non-blocking take → the 1 s task logs new fixes to the RPi.
 
@@ -282,7 +286,7 @@ To accept data from a new ESP-NOW sender, add a MAC branch in
 | `/print` | Returns the `web_server_print` log buffer |
 | `/ota` | Starts HTTPS OTA from `FIRMWARE_UPGRADE_URL` (`web_server.c`), server cert in `certs/`. See below |
 | `/reset` | Reboots |
-| `/ws` | WebSocket; IMU orientation is pushed to all connected clients |
+| `/ws` | WebSocket; JSON messages are pushed to all connected clients and the page picks a handler by their `"type"`: `imu_orientation` (every IMU sample) and `status` (once per second, see 5.6). Send with `web_server_ws_broadcast_text()` |
 
 **OTA failure reporting.** `perform_ota_update()` first opens a plain TLS
 connection to the server with `esp-tls` (`ota_check_server()`), because
@@ -318,6 +322,35 @@ two control paths don't fight. If both are active, the last packet wins.
 
 UART0 carries **both** the control frames coming in and the logs going out, so
 the RPi side has to separate log lines from its own traffic.
+
+### 5.6 Robot status (STATUS panel)
+
+The web page shows one row per controller of the robot: online/offline,
+firmware version, uptime and details. `robot_status` keeps the table and
+pushes it over the WebSocket once per second (`"type":"status"`).
+
+A controller is **online** when it was heard from within
+`ROBOT_STATUS_OFFLINE_AFTER_MS` (**3 s**), otherwise offline, or "not seen
+since boot". It is heard from in one of two ways:
+
+| Controller | How it reports | Where |
+|------------|----------------|-------|
+| This board | Always online (it is the one reporting); shows `FW_VERSION`, uptime, WiFi signal | `robot_status_task` |
+| Raspberry Pi | A valid Xbox frame arrived over UART. So it shows offline when no controller is connected to the RPi, because the RPi sends no frames then | `process_xbox_input` → `robot_status_mark_seen` |
+| GPS / navigation | Coordinates arrived over ESP-NOW | `on_data_recv_callback` → `robot_status_mark_seen` |
+| RoArm-M3, motor controller | Heartbeat over ESP-NOW (not sent by those firmwares yet, so they show "not seen since boot") | `on_data_recv_callback` → `robot_status_handle_heartbeat` |
+
+**Heartbeat** (`robot_status_msg.h`): a 24-byte packed struct sent once per
+second, starting with the bytes `'R','S'` and a protocol version. It carries
+the node id, uptime, flag bits, a last-error code and the firmware version.
+`on_data_recv_callback()` checks for it first, whoever the sender is, and does
+not log it. A packet counts as a heartbeat only when it has both the exact
+length and the two leading bytes; anything else goes on to the MAC routing.
+The header is shared: every repo that sends heartbeats keeps an
+identical copy, and a layout change needs a new `ROBOT_STATUS_PROTO_VERSION`.
+
+To add a controller: add it to `robot_node_t` and to `nodes[]` in
+`robot_status.c`, plus its flag names if it sends heartbeats.
 
 ---
 
@@ -397,6 +430,7 @@ tested by adding a `test/` folder that registers Unity `TEST_CASE`s
 | Change a controller button mapping | `process_xbox_input()` in `motor_control.c` |
 | Add a field to the RPi→ESP32 frame | `xbox_controller_t` + `fields[]`/`values[]` in `parse_xbox_data()`, plus the RPi sender |
 | Add a new arm command | `roarm_m3_motor_control.c/.h` (new `T` code helper) |
+| Show a new controller in the STATUS panel | `robot_node_t` in `robot_status_msg.h`, `nodes[]` in `robot_status.c` (see 5.6) |
 | Handle a new ESP-NOW sender | MAC + branch in `esp_now_comm_callbacks.c`, `esp_now_comm_add_peer()` in the owning component |
 | Add a web endpoint | `httpd_uri_t` + handler + `httpd_register_uri_handler` in `web_server.c` |
 | Change what the IMU publishes | `task_read_qmi8658_data()` in `IMU.cpp` |

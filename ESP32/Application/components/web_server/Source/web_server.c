@@ -392,23 +392,17 @@ void web_server_print(const char *message)
     web_server_print_buffer[WEBSERVER_PRINT_MAX_LEN - 1] = '\0';
 }
 
-/* Broadcast IMU orientation (Euler angles) JSON to all connected WS clients */
-void web_server_ws_broadcast_imu_orientation(float roll, float pitch, float yaw)
+/* Send a text message to all connected WS clients. Returns the number of clients it was sent to. */
+int web_server_ws_broadcast_text(const char *text)
 {
-    if (server == NULL) return;
-
-    char msg[140];
-    int n = snprintf(msg, sizeof(msg),
-                     "{\"type\":\"imu_orientation\",\"roll\":%.2f,\"pitch\":%.2f,\"yaw\":%.2f}",
-                     roll, pitch, yaw);
-    if (n <= 0) return;
+    if (server == NULL || text == NULL) return 0;
 
     httpd_ws_frame_t frame = {
         .final = true,
         .fragmented = false,
         .type = HTTPD_WS_TYPE_TEXT,
-        .payload = (uint8_t *)msg,
-        .len = (size_t)n
+        .payload = (uint8_t *)text,
+        .len = strlen(text)
     };
 
     int active_clients = 0;
@@ -429,6 +423,20 @@ void web_server_ws_broadcast_imu_orientation(float roll, float pitch, float yaw)
         }
     }
     if (ws_clients_mutex) xSemaphoreGive(ws_clients_mutex);
+
+    return active_clients;
+}
+
+/* Broadcast IMU orientation (Euler angles) JSON to all connected WS clients */
+void web_server_ws_broadcast_imu_orientation(float roll, float pitch, float yaw)
+{
+    char msg[140];
+    int n = snprintf(msg, sizeof(msg),
+                     "{\"type\":\"imu_orientation\",\"roll\":%.2f,\"pitch\":%.2f,\"yaw\":%.2f}",
+                     roll, pitch, yaw);
+    if (n <= 0) return;
+
+    int active_clients = web_server_ws_broadcast_text(msg);
 
     /* Log occasionally for debugging (every 1000 calls = ~50 seconds at 50ms period) */
     static int orientation_debug_counter = 0;

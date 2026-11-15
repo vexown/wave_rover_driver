@@ -93,6 +93,14 @@ bool web_server_is_connected(void);
  */
 void web_server_ws_broadcast_imu_orientation(float roll, float pitch, float yaw);
 
+/**
+ * @brief Sends a text message (JSON with a "type" field) to all connected WebSocket clients.
+ *
+ * @param text The null-terminated message. The web page picks the handler by its "type".
+ * @return Number of clients the message was sent to (0 if the server is not running).
+ */
+int web_server_ws_broadcast_text(const char *text);
+
 #ifdef __cplusplus
 }
 #endif
